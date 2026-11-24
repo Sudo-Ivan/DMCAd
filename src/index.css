@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-canvas: #f7f7f5;
+  --color-panel: #ffffff;
+  --color-panel2: #efefec;
+  --color-edge: #e3e3de;
+  --color-edge2: #d4d4cd;
+  --color-ink: #1c1c1a;
+  --color-ink2: #55554f;
+  --color-ink3: #8a8a83;
+  --color-accent: #2f5fd0;
+  --color-accent-soft: #e4ebfa;
+  --color-raised: #fcfcfa;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas,
+    monospace;
+}
+
+.dark {
+  --color-canvas: #0c0c0e;
+  --color-panel: #141417;
+  --color-panel2: #1b1b1f;
+  --color-edge: #26262b;
+  --color-edge2: #33333a;
+  --color-ink: #e8e8e4;
+  --color-ink2: #a3a39c;
+  --color-ink3: #6d6d66;
+  --color-accent: #7aa2f7;
+  --color-accent-soft: #1d2a45;
+  --color-raised: #1e1e25;
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 65%, transparent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-edge2) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-edge2);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink3);
+  background-clip: content-box;
+  border: 2px solid transparent;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+mark {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.panel-in {
+  animation: panelIn 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@keyframes panelIn {
+  from { opacity: 0; transform: translateX(24px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.panel-out {
+  animation: panelOut 0.18s ease-in forwards;
+}
+@keyframes panelOut {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(40px); }
+}
+
+.backdrop-in {
+  animation: backdropIn 0.18s ease-out;
+}
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
