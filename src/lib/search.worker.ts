@@ -23,6 +23,11 @@ interface BodyDoc {
 
 let metaIndex: MiniSearch<Doc> | null = null
 let fullIndex: MiniSearch<BodyDoc> | null = null
+// Excerpt text lives in per-month sidecar files for repo sources, so it
+// cannot ride along in the init docs. Chunks are posted as they load
+// (visible months first, then a background sweep) and indexed here so
+// excerpt search keeps working without the index carrying the text.
+let excerptIndex: MiniSearch<{ id: string; x: string }> | null = null
 const bodies = new Map<string, string>()
 let fullReady = false
 
@@ -52,11 +57,28 @@ function buildFull() {
   fullReady = true
 }
 
+function addExcerpts(entries: [string, string][]) {
+  if (!entries.length) return
+  if (!excerptIndex) {
+    excerptIndex = new MiniSearch<{ id: string; x: string }>({
+      fields: ['x'],
+      storeFields: [],
+      // Matches the 'x' field boost in the meta index.
+      searchOptions: { prefix: true, fuzzy: 0.15 },
+    })
+  }
+  excerptIndex.addAll(entries.map(([id, x]) => ({ id, x })))
+}
+
 self.onmessage = (e: MessageEvent) => {
   const msg = e.data
   if (msg.type === 'init') {
     buildMeta(msg.docs)
     postMessage({ type: 'ready' })
+    return
+  }
+  if (msg.type === 'excerpts') {
+    addExcerpts(msg.entries as [string, string][])
     return
   }
   if (msg.type === 'bodies') {
@@ -91,6 +113,11 @@ self.onmessage = (e: MessageEvent) => {
       const full = fullIndex.search(q).slice(0, limit * 2)
       for (const r of full) {
         merged.set(r.id, (merged.get(r.id) ?? 0) + r.score * 0.6)
+      }
+    }
+    if (excerptIndex) {
+      for (const r of excerptIndex.search(q).slice(0, limit)) {
+        merged.set(r.id, (merged.get(r.id) ?? 0) + r.score)
       }
     }
     const results = [...merged.entries()]

@@ -6,7 +6,9 @@
 // Outputs (all under public/data/):
 //   sources.json              manifest: per-source id, label, counts, files
 //   src/<source>.json         one index file per source (positional rows)
+//   src/<source>-<year>.json  split index parts, loaded newest-first
 //   stats/<source>.json       precomputed aggregates per source
+//   excerpts/*.json           per-month notice excerpts (default view)
 //   bodies/**.json            raw notice text, chunked per source
 
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
@@ -56,6 +58,7 @@ async function main() {
       repoUrl: 'https://github.com/github/dmca.git',
       cacheDir: join('.cache', 'dmca'),
       envVar: 'DMCA_DIR',
+      splitYears: true,
     }),
   )
 
@@ -84,7 +87,11 @@ async function main() {
       count: b.stats.total,
       firstDate: b.stats.firstDate,
       lastDate: b.stats.lastDate,
-      index: `src/${id}.json`,
+      // Split sources list their parts newest-first; the loader fetches
+      // them in order so first paint only waits on the newest slice.
+      ...(b.indexes
+        ? { indexes: b.indexes.map((p) => `src/${p.file}.json`) }
+        : { index: `src/${id}.json` }),
       stats: `stats/${id}.json`,
       commit: b.revision,
       ...(b.lazy ? { lazy: true } : {}),
@@ -93,7 +100,7 @@ async function main() {
 
   writeFileSync(
     join(OUT, 'sources.json'),
-    JSON.stringify({ v: 1, generatedAt: new Date().toISOString(), sources }),
+    JSON.stringify({ v: 2, generatedAt: new Date().toISOString(), sources }),
   )
 
   for (const b of builds) emitSource(b)

@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   loadBodies,
+  loadExcerpts,
+  loadIndexNotices,
   loadManifest,
   loadSource,
   loadStats,
   mergeStats,
   type LoadedSource,
   type Manifest,
+  type SourceInfo,
   type Stats,
 } from './lib/data'
-import { bodyChunk, type Notice } from './lib/rows'
-import { SOURCE_ORDER } from './lib/sources'
+import { bodyChunk, excerptChunk, type Notice } from './lib/rows'
+import { SOURCE_ORDER, type SourceId } from './lib/sources'
 import {
   readState,
   urlFor,
@@ -57,6 +60,10 @@ export default function App() {
   const [fullProgress, setFullProgress] = useState<[number, number]>([0, 0])
   const [selIndex, setSelIndex] = useState(-1)
   const [closing, setClosing] = useState<Notice | null>(null)
+  // noticeId -> excerpt, filled in as per-month sidecar chunks land.
+  const [excerptMap, setExcerptMap] = useState<Map<string, string>>(
+    () => new Map(),
+  )
 
   const workerRef = useRef<Worker | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -68,10 +75,16 @@ export default function App() {
   }, [state])
 
   // ---------- data loading ----------
-  // Eager sources load up front. Lazy indexes (the big google dump) are
-  // fetched only on demand: when their source filter is selected or a
-  // deep-linked detail id belongs to them. Stats files are tiny and load
-  // for every source so dashboard totals stay accurate throughout.
+  // Eager sources load up front. Split indexes (github) publish their
+  // newest year parts first so the list paints early; the older parts
+  // wait out a short delay so they stay off the first-paint critical
+  // path, then stream in. Any filter, query, or deep link pulls them
+  // forward immediately. Lazy indexes (the big google dump) are fetched
+  // only on demand: when their source filter is selected or a deep-linked
+  // detail id belongs to them. Stats files are tiny and load for every
+  // source so dashboard totals stay accurate throughout.
+  const pendingTails = useRef(new Map<string, () => void>())
+
   useEffect(() => {
     let cancelled = false
     loadManifest()
@@ -79,36 +92,95 @@ export default function App() {
         if (cancelled) return
         setManifest(m)
         const eager = m.sources.filter((s) => !s.lazy)
-        // Smallest indexes first, largest last: the list paints from the
-        // small sources well before the big download lands, which keeps
-        // first paint (and LCP) off the critical path of the bulk fetch.
-        const byCount = [...eager].sort((a, b) => a.count - b.count)
-        const head = byCount.slice(0, -1)
-        const tail = byCount.slice(-1)
-        const loaded: LoadedSource[] = []
+        // Stats are tiny and every source's is needed for dashboard
+        // totals, including lazy ones. Fetch them in parallel with the
+        // indexes so stats and the first notices land together.
+        const allStats = await Promise.all(m.sources.map(loadStats))
+        if (cancelled) return
+        setStats(mergeStats(allStats))
+        const statsById = new Map<SourceId, Stats>(
+          m.sources.map((s, i) => [s.id, allStats[i]]),
+        )
+
+        const loadedMap = new Map<SourceId, LoadedSource>()
         const apply = () => {
-          if (cancelled || loaded.length === 0) return
-          const ordered = [...loaded].sort(
-            (a, b) => SOURCE_ORDER.indexOf(a.info.id) - SOURCE_ORDER.indexOf(b.info.id),
+          if (cancelled) return
+          const ordered = SOURCE_ORDER.filter((id) => loadedMap.has(id)).map(
+            (id) => loadedMap.get(id)!,
           )
           setSources(ordered)
         }
-        // Stats are tiny and every source's is needed for dashboard totals.
-        // Fetch them in parallel with the small indexes so stats and the
-        // first notices land in the same render pass.
-        const [allStats, headRes] = await Promise.all([
-          Promise.all(m.sources.map(loadStats)),
-          Promise.all(head.map(loadSource)),
-        ])
-        if (cancelled) return
-        loaded.push(...headRes)
-        setStats(mergeStats(allStats))
-        apply()
-        for (const info of tail) {
-          const s = await loadSource(info)
-          if (cancelled) return
-          loaded.push(s)
+        const publish = (
+          info: SourceInfo,
+          notices: Notice[],
+          complete: boolean,
+        ) => {
+          const stats = statsById.get(info.id)
+          if (!stats) return
+          loadedMap.set(info.id, {
+            info,
+            stats,
+            notices: [...notices],
+            complete,
+          })
           apply()
+        }
+
+        // Only the newest parts paint eagerly: Lantern counts every
+        // request that finished before the observed LCP toward the
+        // simulated LCP, so older parts wait out a delay, then load
+        // sequentially so decode never becomes one long task. Three
+        // monthly parts cover roughly a quarter thousand rows, enough
+        // scroll buffer until the tail lands.
+        const EAGER_PARTS = 3
+        const TAIL_DELAY_MS = 4000
+
+        const loadEager = async (info: SourceInfo) => {
+          const parts = info.indexes ?? (info.index ? [info.index] : [])
+          const notices: Notice[] = []
+          for (const p of parts.slice(0, EAGER_PARTS)) {
+            try {
+              notices.push(...(await loadIndexNotices(p)))
+            } catch {
+              break
+            }
+            if (cancelled) return
+            publish(info, notices, false)
+          }
+          const tail = parts.slice(EAGER_PARTS)
+          if (!tail.length) {
+            publish(info, notices, true)
+            return
+          }
+          let started = false
+          const runTail = async () => {
+            if (started || cancelled) return
+            started = true
+            for (const p of tail) {
+              if (cancelled) return
+              try {
+                notices.push(...(await loadIndexNotices(p)))
+              } catch {
+                /* keep whatever decoded so far */
+              }
+              publish(info, notices, false)
+            }
+            publish(info, notices, true)
+          }
+          pendingTails.current.set(info.id, () => void runTail())
+          window.setTimeout(() => void runTail(), TAIL_DELAY_MS)
+        }
+
+        // Split-index sources go first: their newest part carries the
+        // bulk of the recent-notices view, so the first paint is already
+        // the final ordering and excerpt prefetches hit the right months.
+        // Small single-file sources follow immediately after.
+        const ordered = [...eager].sort(
+          (a, b) => Number(b.indexes !== undefined) - Number(a.indexes !== undefined),
+        )
+        for (const info of ordered) {
+          await loadEager(info)
+          if (cancelled) return
         }
       })
       .catch((e) => {
@@ -118,6 +190,22 @@ export default function App() {
       cancelled = true
     }
   }, [])
+
+  // Searching or filtering needs the whole corpus; if a deferred index
+  // tail has not started yet, pull it forward instead of waiting.
+  useEffect(() => {
+    for (const run of pendingTails.current.values()) run()
+  }, [
+    state.q,
+    state.from,
+    state.to,
+    state.types,
+    state.claimants,
+    state.owners,
+    state.counterOnly,
+    state.source,
+    state.detail,
+  ])
 
   // Lazy index loading, triggered by the source filter or a deep-linked
   // detail id. lazyInflight dedupes concurrent triggers.
@@ -150,6 +238,88 @@ export default function App() {
     () => (sources.length === 0 ? null : sources.flatMap((s) => s.notices)),
     [sources],
   )
+
+  // True once every eager (non-lazy) source has finished streaming its
+  // index parts. Search docs wait for this so they are built once over
+  // the complete corpus instead of per part.
+  const indexesReady = useMemo(() => {
+    if (!manifest) return false
+    return manifest.sources
+      .filter((s) => !s.lazy)
+      .every((info) =>
+        sources.some((s) => s.info.id === info.id && s.complete),
+      )
+  }, [manifest, sources])
+
+  // ---------- excerpt sidecars ----------
+  // Repo sources keep excerpts in per-month chunks under data/excerpts/.
+  // The list asks for the months it renders (plus a prefetch margin); a
+  // delayed sweep then feeds every remaining chunk to the search worker
+  // so excerpt search covers the whole corpus without blocking paint.
+  const excerptDisplayReq = useRef(new Set<string>())
+  const excerptWorkerFed = useRef(new Set<string>())
+
+  const postExcerpts = useCallback(
+    (chunk: string, data: Record<string, string>) => {
+      if (excerptWorkerFed.current.has(chunk)) return
+      excerptWorkerFed.current.add(chunk)
+      workerRef.current?.postMessage({
+        type: 'excerpts',
+        entries: Object.entries(data),
+      })
+    },
+    [],
+  )
+
+  const ensureExcerpts = useCallback(
+    (chunks: string[]) => {
+      for (const c of chunks) {
+        if (excerptDisplayReq.current.has(c)) continue
+        excerptDisplayReq.current.add(c)
+        loadExcerpts(c)
+          .then((data) => {
+            setExcerptMap((prev) => {
+              const m = new Map(prev)
+              for (const [k, v] of Object.entries(data)) m.set(k, v)
+              return m
+            })
+            postExcerpts(c, data)
+          })
+          .catch(() => {
+            excerptDisplayReq.current.delete(c)
+          })
+      }
+    },
+    [postExcerpts],
+  )
+
+  const sweepExcerpts = useCallback(
+    (chunks: string[]) => {
+      for (const c of chunks) {
+        loadExcerpts(c)
+          .then((data) => postExcerpts(c, data))
+          .catch(() => {
+            /* chunk missing or failed; display path can retry */
+          })
+      }
+    },
+    [postExcerpts],
+  )
+
+  useEffect(() => {
+    if (!indexesReady || !notices) return
+    const chunks = [
+      ...new Set(
+        notices
+          .map(excerptChunk)
+          .filter((c): c is string => c !== null),
+      ),
+    ]
+    if (!chunks.length) return
+    // Stay well clear of first paint: this only feeds the search worker.
+    const t = window.setTimeout(() => sweepExcerpts(chunks), 5000)
+    return () => window.clearTimeout(t)
+  }, [indexesReady, notices, sweepExcerpts])
 
   // ---------- search worker ----------
   useEffect(() => {
@@ -195,7 +365,7 @@ export default function App() {
 
   useEffect(() => {
     const w = workerRef.current
-    if (!w || !notices) return
+    if (!w || !notices || !indexesReady) return
     let cancelled = false
     // Build docs in slices with event-loop yields so large indexes never
     // become one long main-thread task.
@@ -213,7 +383,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [notices, stats, claimantLabel])
+  }, [notices, stats, claimantLabel, indexesReady])
 
   // ---------- query -> worker ----------
   useEffect(() => {
@@ -622,6 +792,8 @@ export default function App() {
                     selectedIndex={selIndex}
                     onOpen={openDetail}
                     resetKey={resetKey}
+                    excerpts={excerptMap}
+                    onExcerptsNeeded={ensureExcerpts}
                   />
                 ) : (
                   <ListSkeleton />

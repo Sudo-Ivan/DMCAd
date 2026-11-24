@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { Notice } from '../lib/rows'
+import { excerptChunk } from '../lib/rows'
 import { ResultCard } from './ResultCard'
 
 interface Props {
@@ -10,7 +11,15 @@ interface Props {
   selectedIndex: number
   onOpen: (index: number) => void
   resetKey: string
+  // noticeId -> excerpt, filled in as per-month sidecar chunks land.
+  excerpts: Map<string, string>
+  // Called with the sidecar chunks covering the rendered window plus a
+  // prefetch margin, so scrolling stays ahead of the fetches.
+  onExcerptsNeeded: (chunks: string[]) => void
 }
+
+// How far past the rendered window to prefetch excerpt chunks, in rows.
+const PREFETCH_ROWS = 60
 
 export function ResultList({
   items,
@@ -19,6 +28,8 @@ export function ResultList({
   selectedIndex,
   onOpen,
   resetKey,
+  excerpts,
+  onExcerptsNeeded,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null)
 
@@ -29,6 +40,25 @@ export function ResultList({
     overscan: 8,
     getItemKey: (i) => items[i]?.path ?? i,
   })
+
+  const virtualItems = virtualizer.getVirtualItems()
+
+  useEffect(() => {
+    const chunks = new Set<string>()
+    const first = virtualItems[0]?.index ?? -1
+    const last = virtualItems[virtualItems.length - 1]?.index ?? -1
+    if (first >= 0 && last >= first) {
+      const lo = Math.max(0, first - PREFETCH_ROWS)
+      const hi = Math.min(items.length - 1, last + PREFETCH_ROWS)
+      for (let i = lo; i <= hi; i++) {
+        const n = items[i]
+        if (!n) continue
+        const c = excerptChunk(n)
+        if (c) chunks.add(c)
+      }
+    }
+    onExcerptsNeeded([...chunks])
+  }, [virtualItems, items, onExcerptsNeeded])
 
   useEffect(() => {
     if (selectedIndex < 0) return
@@ -49,7 +79,7 @@ export function ResultList({
       <div
         style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
       >
-        {virtualizer.getVirtualItems().map((vi) => {
+        {virtualItems.map((vi) => {
           const n = items[vi.index]
           if (!n) return null
           return (
@@ -68,6 +98,7 @@ export function ResultList({
             >
               <ResultCard
                 notice={n}
+                excerpt={excerpts.get(n.id)}
                 claimantLabel={claimantLabel(n.claimantKey)}
                 terms={terms}
                 selected={vi.index === selectedIndex}

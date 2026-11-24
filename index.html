@@ -12,8 +12,11 @@
     <!-- Warm the cache for the small files the app fetches on startup so
          they download in parallel with the JS bundle instead of waiting
          for it. Mirrors the eager set in src/App.tsx: manifest, every
-         stats file, and the two small indexes (github is the deferred
-         tail, google is lazy). crossorigin lets fetch() reuse them. -->
+         stats file, the two small indexes, and the newest github index
+         part (the rest of the split index streams in after first
+         paint). crossorigin lets fetch() reuse them. The month in the
+         github part name is the newest data month; bump it when the
+         corpus rolls over. -->
     <link rel="preload" as="fetch" href="%BASE_URL%data/sources.json" crossorigin />
     <link rel="preload" as="fetch" href="%BASE_URL%data/stats/github.json" crossorigin />
     <link rel="preload" as="fetch" href="%BASE_URL%data/stats/google.json" crossorigin />
@@ -21,6 +24,7 @@
     <link rel="preload" as="fetch" href="%BASE_URL%data/stats/lbry.json" crossorigin />
     <link rel="preload" as="fetch" href="%BASE_URL%data/src/wikimedia.json" crossorigin />
     <link rel="preload" as="fetch" href="%BASE_URL%data/src/lbry.json" crossorigin />
+    <link rel="preload" as="fetch" href="%BASE_URL%data/src/github-2026-11.json" crossorigin />
     <script>
       ;(function () {
         try {

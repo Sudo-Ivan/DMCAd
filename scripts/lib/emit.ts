@@ -5,17 +5,31 @@ import { dirname, join } from 'node:path'
 import type { Stats, TopEntry } from '../../src/lib/data'
 import type { SourceId } from '../../src/lib/sources'
 import { SOURCE_LABELS } from '../../src/lib/sources'
-import { claimantKeyFor } from '../../src/lib/rows'
+import { claimantKeyFor, type SourceIndexFile } from '../../src/lib/rows'
 
 export const ROOT = new URL('../..', import.meta.url).pathname
 export const OUT = join(ROOT, 'public', 'data')
 
+export interface IndexPart {
+  // file name under src/, without extension (e.g. 'github-2026')
+  file: string
+  index: SourceIndexFile
+}
+
 export interface SourceBuild {
   id: SourceId
   revision: string // commit sha, api date, zip last-modified, ...
-  index: { v: number; source: SourceId; fields: string[]; rows: unknown[][] }
+  // Exactly one of `index` (single file) or `indexes` (split parts, loaded
+  // in order) is set. Split parts let the app paint from the newest slice
+  // while the rest stream in.
+  index?: SourceIndexFile
+  indexes?: IndexPart[]
   stats: Stats
   bodies: Map<string, Record<string, string>> // chunk path -> {key: text}
+  // Per-month excerpt sidecars: chunk name (e.g. 'github-2024-01') ->
+  // {bare path: excerpt}. Always emitted, even under SKIP_BODIES, because
+  // the default result list renders excerpts.
+  excerpts?: Map<string, Record<string, string>>
   lazy?: boolean
 }
 
@@ -36,17 +50,28 @@ export function writeJson(path: string, data: unknown) {
 }
 
 // SKIP_BODIES=1 omits bodies/** (full-text search data) for builds that do
-// not need it, e.g. CI Lighthouse runs.
+// not need it, e.g. CI Lighthouse runs. Excerpt sidecars are NOT gated:
+// the default view renders them.
 const SKIP_BODIES = process.env.SKIP_BODIES === '1'
 
 export function emitSource(b: SourceBuild) {
-  writeJson(join(OUT, 'src', `${b.id}.json`), b.index)
+  if (b.indexes) {
+    for (const p of b.indexes) {
+      writeJson(join(OUT, 'src', `${p.file}.json`), p.index)
+    }
+  } else if (b.index) {
+    writeJson(join(OUT, 'src', `${b.id}.json`), b.index)
+  }
   writeJson(join(OUT, 'stats', `${b.id}.json`), b.stats)
+  for (const [chunk, ex] of b.excerpts ?? []) {
+    // Keys are namespaced with the source id so they line up with
+    // Notice.id (`${source}:${path}`), same convention as bodies/**.
+    const keyed: Record<string, string> = {}
+    for (const [k, v] of Object.entries(ex)) keyed[`${b.id}:${k}`] = v
+    writeJson(join(OUT, 'excerpts', `${chunk}.json`), keyed)
+  }
   if (SKIP_BODIES) return
   for (const [chunk, body] of b.bodies) {
-    // Keys are namespaced with the source id so they line up with
-    // Notice.id (`${source}:${path}`) in the detail panel and the
-    // full-text search worker.
     const keyed: Record<string, string> = {}
     for (const [k, v] of Object.entries(body)) keyed[`${b.id}:${k}`] = v
     writeJson(join(OUT, 'bodies', `${chunk}.json`), keyed)

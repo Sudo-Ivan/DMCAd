@@ -31,7 +31,10 @@ export interface SourceInfo {
   count: number
   firstDate: string
   lastDate: string
-  index: string // path under data/, e.g. src/github.json
+  index?: string // path under data/, e.g. src/github.json
+  // Split index parts under data/, loaded in order (newest first). When
+  // present, `index` is unset.
+  indexes?: string[]
   stats: string // path under data/, e.g. stats/github.json
   commit?: string // upstream revision: sha, api date, zip last-modified
   lazy?: boolean // large index, fetched only when needed
@@ -47,6 +50,9 @@ export interface LoadedSource {
   info: SourceInfo
   stats: Stats
   notices: Notice[]
+  // False while a split index is still streaming parts in. Search docs
+  // are only built once every loaded source reports complete.
+  complete: boolean
 }
 
 const BASE = import.meta.env.BASE_URL
@@ -74,12 +80,28 @@ export async function loadStats(info: SourceInfo): Promise<Stats> {
   return stats
 }
 
+// Fetches and decodes a single index file (src/<source>.json or one
+// src/<source>-<year>.json part of a split index).
+export async function loadIndexNotices(path: string): Promise<Notice[]> {
+  const idx = await fetchJson<SourceIndexFile>(path)
+  return decodeIndexAsync(idx)
+}
+
+// Loads every index file for a source (single `index` or ordered
+// `indexes` parts) and decodes them into notices. Used for lazy sources;
+// eager split sources go through the progressive loader in App.tsx so
+// first paint only waits on the newest parts.
 export async function loadSource(info: SourceInfo): Promise<LoadedSource> {
-  const [idx, stats] = await Promise.all([
-    fetchJson<SourceIndexFile>(info.index),
+  const parts = info.indexes ?? (info.index ? [info.index] : [])
+  const [stats, files] = await Promise.all([
     loadStats(info),
+    Promise.all(parts.map((p) => fetchJson<SourceIndexFile>(p))),
   ])
-  return { info, stats, notices: await decodeIndexAsync(idx) }
+  const notices: Notice[] = []
+  for (const f of files) {
+    notices.push(...(await decodeIndexAsync(f)))
+  }
+  return { info, stats, notices, complete: true }
 }
 
 export function loadBodies(chunk: string): Promise<Record<string, string>> {
@@ -92,6 +114,22 @@ function bodyCache(chunk: string): Promise<Record<string, string>> {
   if (!p) {
     p = fetchJson<Record<string, string>>(`bodies/${chunk}.json`)
     bodyCacheMap.set(chunk, p)
+  }
+  return p
+}
+
+// Excerpt sidecars: {noticeId: excerpt} per month chunk. Cached like
+// bodies so scroll prefetch and the search sweep share one fetch.
+export function loadExcerpts(chunk: string): Promise<Record<string, string>> {
+  return excerptCache(chunk)
+}
+
+const excerptCacheMap = new Map<string, Promise<Record<string, string>>>()
+function excerptCache(chunk: string): Promise<Record<string, string>> {
+  let p = excerptCacheMap.get(chunk)
+  if (!p) {
+    p = fetchJson<Record<string, string>>(`excerpts/${chunk}.json`)
+    excerptCacheMap.set(chunk, p)
   }
   return p
 }

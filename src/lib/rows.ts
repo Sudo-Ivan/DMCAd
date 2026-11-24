@@ -142,3 +142,13 @@ export function bodyChunk(n: Notice): string | null {
   const ym = monthOf(n)
   return n.source === 'lbry' ? `lbry/${ym}` : ym
 }
+
+// Excerpt sidecar chunk name relative to data/excerpts/, or null for
+// sources whose index still carries the excerpt inline (wikimedia, google).
+// Repo-corpus indexes (github, lbry) ship v2 rows without excerpts; the
+// per-month sidecar files are named `<source>-<YYYY-MM>` and must match
+// the chunk keys emitted by scripts/lib/repo-corpus.ts.
+export function excerptChunk(n: Notice): string | null {
+  if (n.source !== 'github' && n.source !== 'lbry') return null
+  return `${n.source}-${monthOf(n)}`
+}

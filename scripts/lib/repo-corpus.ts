@@ -1,5 +1,12 @@
 // Builder for git-checkout DMCA corpora: github/dmca and lbryio/dmca.
 // Both use the same year-dir layout of notice markdown files.
+//
+// Index v2 drops the excerpt field: excerpts move to per-month sidecar
+// files under excerpts/ so the index stays small enough for the first
+// paint. Targets stay in the index (they feed the card chips, the owner
+// filter, and the 't' search field). The github index is additionally
+// split into per-year parts (src/github-YYYY.json) which the app loads
+// newest-first so the default view paints after the newest slice only.
 
 import { execFileSync } from 'node:child_process'
 import {
@@ -20,14 +27,19 @@ import {
   emptyStats,
   ROOT,
   topEntries,
+  type IndexPart,
   type SourceBuild,
 } from './emit'
+import type { SourceIndexFile } from '../../src/lib/rows'
 
 export interface RepoSpec {
   id: Extract<SourceId, 'github' | 'lbry'>
   repoUrl: string
   cacheDir: string // under .cache/
   envVar?: string // env var pointing at an existing checkout
+  // Split the index into per-year parts loaded newest-first. Only worth
+  // it for corpora large enough that a single index gates first paint.
+  splitYears?: boolean
 }
 
 function git(args: string[], cwd: string): string {
@@ -74,12 +86,24 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
+const INDEX_FIELDS = [
+  'path', 'date', 'domain', 'claimantKey', 'type', 'urlCount',
+  'targets', 'length', 'hasCounter',
+]
+
 // index.json row layout, keep in sync with src/lib/rows.ts
 // [path, date, domain, claimantKey, type, urlCount, targets(csv),
-//  excerpt, length, hasCounter]
+//  length, hasCounter]  (excerpt moved to per-month sidecar chunks)
 type Row = [
-  string, string, string, string, number, number, string, string, number, number,
+  string, string, string, string, number, number, string, number, number,
 ]
+
+// Excerpt sidecar chunk key: `<source>-<YYYY-MM>` (or `<source>-undated`).
+// Must match excerptChunk() in src/lib/rows.ts.
+function excerptChunkKey(spec: RepoSpec, date: string): string {
+  const ym = date ? date.slice(0, 7) : 'undated'
+  return `${spec.id}-${ym}`
+}
 
 export async function buildRepoCorpus(spec: RepoSpec): Promise<SourceBuild> {
   const { dir, sha } = ensureCheckout(spec)
@@ -95,6 +119,7 @@ export async function buildRepoCorpus(spec: RepoSpec): Promise<SourceBuild> {
 
   const rows: Row[] = []
   const bodies = new Map<string, Record<string, string>>()
+  const excerpts = new Map<string, Record<string, string>>()
   const counterRepos = new Set<string>()
   const parsed: ReturnType<typeof parseNotice>[] = []
 
@@ -122,6 +147,14 @@ export async function buildRepoCorpus(spec: RepoSpec): Promise<SourceBuild> {
       bodies.set(chunkKey, body)
     }
     body[rel] = content
+
+    const exKey = excerptChunkKey(spec, n.date)
+    let ex = excerpts.get(exKey)
+    if (!ex) {
+      ex = {}
+      excerpts.set(exKey, ex)
+    }
+    ex[rel] = n.excerpt
   }
 
   const claimantCounts = new Map<string, number>()
@@ -164,7 +197,7 @@ export async function buildRepoCorpus(spec: RepoSpec): Promise<SourceBuild> {
     const hasCounter = n.targets.some((t) => counterRepos.has(t.toLowerCase())) ? 1 : 0
     rows.push([
       n.path, n.date, n.domain, n.claimantKey, n.type,
-      n.urlCount, n.targets.join(','), n.excerpt, n.length, hasCounter,
+      n.urlCount, n.targets.join(','), n.length, hasCounter,
     ])
   }
 
@@ -206,21 +239,64 @@ export async function buildRepoCorpus(spec: RepoSpec): Promise<SourceBuild> {
   stats.withClaimant = withClaimant
   stats.withUrl = withUrl
 
-  const index = {
-    v: 1,
+  const makeIndex = (subset: Row[]): SourceIndexFile => ({
+    v: 2,
     source: spec.id,
-    fields: [
-      'path', 'date', 'domain', 'claimantKey', 'type', 'urlCount',
-      'targets', 'excerpt', 'length', 'hasCounter',
-    ],
-    rows,
+    fields: INDEX_FIELDS,
+    rows: subset,
+  })
+
+  let index: SourceIndexFile | undefined
+  let indexes: IndexPart[] | undefined
+  if (spec.splitYears) {
+    // Partition rows by notice year, except the newest year which splits
+    // by month: the app paints from the head, so the critical path should
+    // only carry the freshest slice, not a whole year of rows.
+    let maxYear = ''
+    for (const r of rows) {
+      const y = r[1] ? r[1].slice(0, 4) : ''
+      if (y > maxYear) maxYear = y
+    }
+    const byKey = new Map<string, Row[]>()
+    for (const r of rows) {
+      const y = r[1] ? r[1].slice(0, 4) : ''
+      const key = !y ? 'undated' : y === maxYear ? r[1].slice(0, 7) : y
+      let bucket = byKey.get(key)
+      if (!bucket) {
+        bucket = []
+        byKey.set(key, bucket)
+      }
+      bucket.push(r)
+    }
+    // Newest first so the app can paint from the head while the tail
+    // streams in; 'undated' sorts last.
+    indexes = [...byKey.entries()]
+      .sort((a, b) =>
+        a[0] === b[0] ? 0 : a[0] === 'undated' ? 1 : b[0] === 'undated' ? -1 : b[0].localeCompare(a[0]),
+      )
+      .map(([key, subset]) => ({
+        file: `${spec.id}-${key}`,
+        index: makeIndex(subset),
+      }))
+  } else {
+    index = makeIndex(rows)
   }
 
-  const idxSize = JSON.stringify(index).length
+  const totalRows = indexes ? indexes.reduce((a, p) => a + p.index.rows.length, 0) : rows.length
+  const idxJson = JSON.stringify(index ?? { parts: indexes!.length })
   console.log(
-    `[${spec.id}] index ${(idxSize / 1024 / 1024).toFixed(2)} MB, ${rows.length} rows, ` +
-      `${bodies.size} body chunks`,
+    `[${spec.id}] index v2 ${(idxJson.length / 1024).toFixed(0)} KB header, ${totalRows} rows ` +
+      `in ${indexes ? indexes.length + ' year parts' : '1 file'}, ` +
+      `${bodies.size} body chunks, ${excerpts.size} excerpt chunks`,
   )
 
-  return { id: spec.id, revision: sha, index, stats, bodies }
+  return {
+    id: spec.id,
+    revision: sha,
+    index,
+    indexes,
+    stats,
+    bodies,
+    excerpts,
+  }
 }

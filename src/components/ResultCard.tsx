@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Link2 } from 'lucide-react'
 import type { Notice } from '../lib/rows'
+import { excerptChunk } from '../lib/rows'
 import { TYPE_NAMES } from '../lib/parse'
 import { SOURCE_LABELS } from '../lib/sources'
 
@@ -36,6 +37,9 @@ export function Highlight({ text, terms }: { text: string; terms: string[] }) {
 
 interface Props {
   notice: Notice
+  // Resolved excerpt from the sidecar chunk; undefined while the chunk is
+  // still in flight. Sources with inline excerpts ignore this.
+  excerpt?: string
   claimantLabel: string
   terms: string[]
   selected: boolean
@@ -52,10 +56,15 @@ export function TypeBadge({ type }: { type: number }) {
   )
 }
 
-export function ResultCard({ notice: n, claimantLabel, terms, selected, onClick }: Props) {
+export function ResultCard({ notice: n, excerpt, claimantLabel, terms, selected, onClick }: Props) {
   const targets = n.targets
   const shown = targets.slice(0, 3)
   const rest = targets.length - shown.length
+  const ex = excerpt ?? n.excerpt
+  // Repo sources keep a reserved excerpt line while the sidecar chunk is
+  // in flight so cards never change height when the text lands.
+  const sidecar = excerptChunk(n) !== null
+  const pending = excerpt === undefined && sidecar
 
   return (
     <div
@@ -92,9 +101,13 @@ export function ResultCard({ notice: n, claimantLabel, terms, selected, onClick 
         <TypeBadge type={n.type} />
       </div>
 
-      {n.excerpt && (
+      {(ex || pending || sidecar) && (
         <p className="mt-1 line-clamp-2 min-h-10 pl-[98px] text-[12.5px] leading-5 text-ink2">
-          <Highlight text={n.excerpt} terms={terms} />
+          {pending ? (
+            <span className="mt-1 block h-4 w-3/5 animate-pulse rounded bg-panel2" />
+          ) : (
+            <Highlight text={ex} terms={terms} />
+          )}
         </p>
       )}
 
