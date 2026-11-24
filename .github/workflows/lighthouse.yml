@@ -53,21 +53,21 @@ jobs:
           pnpm exec lhci collect --config=lighthouserc.json
           status=0
           pnpm exec lhci assert --config=lighthouserc.json || status=$?
-          mv .lighthouseci .lighthouseci-mobile
+          mv .lighthouseci lighthouse-mobile
           exit $status
       - name: Lighthouse desktop
         run: |
           pnpm exec lhci collect --config=lighthouserc.desktop.json
           status=0
           pnpm exec lhci assert --config=lighthouserc.desktop.json || status=$?
-          mv .lighthouseci .lighthouseci-desktop
+          mv .lighthouseci lighthouse-desktop
           exit $status
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: lighthouse-reports
           path: |
-            .lighthouseci-mobile
-            .lighthouseci-desktop
+            lighthouse-mobile
+            lighthouse-desktop
             .lighthouseci
           retention-days: 14
