@@ -99,7 +99,10 @@ export async function loadSource(info: SourceInfo): Promise<LoadedSource> {
   ])
   const notices: Notice[] = []
   for (const f of files) {
-    notices.push(...(await decodeIndexAsync(f)))
+    const decoded = await decodeIndexAsync(f)
+    // push(...decoded) would spread the whole index as call arguments and
+    // overflow the stack on the 155k-row google dump.
+    for (const n of decoded) notices.push(n)
   }
   return { info, stats, notices, complete: true }
 }

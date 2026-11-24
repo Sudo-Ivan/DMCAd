@@ -12,7 +12,7 @@ interface TopProps {
   sources?: SourceInfo[]
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+export function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div>
       <div className="text-[11px] font-medium uppercase tracking-wider text-ink3">
@@ -86,6 +86,17 @@ export function DashboardTop({ stats, state, onPatch, sources }: TopProps) {
           value={stats.lastDate || 'n/a'}
           sub={stats.commit && stats.commit !== 'unknown' ? `src ${stats.commit.slice(0, 7)}` : undefined}
         />
+        <button
+          onClick={() => onPatch({ view: 'counters' })}
+          title="Counter-notices, retractions and reversals"
+          className="-m-1.5 rounded-md p-1.5 text-left transition-colors duration-150 hover:bg-panel2"
+        >
+          <Stat
+            label="Counter-notices"
+            value={(stats.types['2'] ?? 0).toLocaleString()}
+            sub="open counter view"
+          />
+        </button>
       </div>
 
       <div className="rounded-lg border border-edge bg-panel p-3">
@@ -104,7 +115,7 @@ export function DashboardTop({ stats, state, onPatch, sources }: TopProps) {
   )
 }
 
-function Bar({ pct, color = 'var(--color-accent)' }: { pct: number; color?: string }) {
+export function Bar({ pct, color = 'var(--color-accent)' }: { pct: number; color?: string }) {
   return (
     <div className="h-1 w-full overflow-hidden rounded-full bg-panel2">
       <div
@@ -115,7 +126,7 @@ function Bar({ pct, color = 'var(--color-accent)' }: { pct: number; color?: stri
   )
 }
 
-const TYPE_HEX: Record<number, string> = {
+export const TYPE_HEX: Record<number, string> = {
   0: '#94a3b8',
   1: '#3b82f6',
   2: '#10b981',
@@ -145,7 +156,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'types', label: 'Types' },
 ]
 
-function RankRow({
+export function RankRow({
   rank,
   label,
   count,
@@ -162,28 +173,39 @@ function RankRow({
   active: boolean
   mono?: boolean
   color?: string
-  onClick: () => void
+  onClick?: () => void
 }) {
+  const body = (
+    <>
+      <span className="w-4 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink3">
+        {rank}
+      </span>
+      <span
+        className={`min-w-0 flex-1 truncate text-[13px] text-ink ${mono ? 'font-mono text-[12px]' : ''}`}
+      >
+        {label}
+      </span>
+      <span className="w-10 shrink-0 text-right text-[12px] tabular-nums text-ink3">
+        {count.toLocaleString()}
+      </span>
+    </>
+  )
   return (
     <li>
-      <button
-        onClick={onClick}
-        className={`flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors duration-150 hover:bg-panel2 ${
-          active ? 'bg-accent-soft/60' : ''
-        }`}
-      >
-        <span className="w-4 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink3">
-          {rank}
-        </span>
-        <span
-          className={`min-w-0 flex-1 truncate text-[13px] text-ink ${mono ? 'font-mono text-[12px]' : ''}`}
+      {onClick ? (
+        <button
+          onClick={onClick}
+          className={`flex w-full items-center gap-2 rounded px-1.5 py-1 text-left transition-colors duration-150 hover:bg-panel2 ${
+            active ? 'bg-accent-soft/60' : ''
+          }`}
         >
-          {label}
-        </span>
-        <span className="w-10 shrink-0 text-right text-[12px] tabular-nums text-ink3">
-          {count.toLocaleString()}
-        </span>
-      </button>
+          {body}
+        </button>
+      ) : (
+        <div className="flex w-full items-center gap-2 rounded px-1.5 py-1">
+          {body}
+        </div>
+      )}
       <div className="ml-7 mr-1.5 mt-0.5">
         <Bar pct={pct} color={color} />
       </div>
@@ -224,7 +246,8 @@ export function DashboardWidgets({ stats, state, onPatch, claimantLabel }: Widge
         {tab === 'claimants' && (
           <ul className="space-y-1">
             {stats.topClaimants.slice(0, 12).map((c, i) => {
-              const active = state.claimants.includes(c.key)
+              const profile = `c:${c.key}`
+              const active = state.profile === profile
               return (
                 <RankRow
                   key={c.key}
@@ -233,9 +256,7 @@ export function DashboardWidgets({ stats, state, onPatch, claimantLabel }: Widge
                   count={c.count}
                   pct={(c.count / maxClaimant) * 100}
                   active={active}
-                  onClick={() =>
-                    onPatch({ claimants: toggleIn(state.claimants, c.key) })
-                  }
+                  onClick={() => onPatch({ profile })}
                 />
               )
             })}
@@ -245,7 +266,8 @@ export function DashboardWidgets({ stats, state, onPatch, claimantLabel }: Widge
         {tab === 'owners' && (
           <ul className="space-y-1">
             {stats.topOwners.slice(0, 12).map((o, i) => {
-              const active = state.owners.includes(o.key)
+              const profile = `o:${o.key}`
+              const active = state.profile === profile
               return (
                 <RankRow
                   key={o.key}
@@ -256,9 +278,7 @@ export function DashboardWidgets({ stats, state, onPatch, claimantLabel }: Widge
                   active={active}
                   mono
                   color="var(--color-ink3)"
-                  onClick={() =>
-                    onPatch({ owners: toggleIn(state.owners, o.key) })
-                  }
+                  onClick={() => onPatch({ profile })}
                 />
               )
             })}
@@ -268,8 +288,8 @@ export function DashboardWidgets({ stats, state, onPatch, claimantLabel }: Widge
         {tab === 'repos' && (
           <ul className="space-y-1">
             {stats.topRepos.slice(0, 12).map((r, i) => {
-              const owner = r.key.split('/')[0]
-              const active = state.owners.includes(owner)
+              const profile = `r:${r.key.toLowerCase()}`
+              const active = state.profile === profile
               return (
                 <RankRow
                   key={r.key}
@@ -280,9 +300,7 @@ export function DashboardWidgets({ stats, state, onPatch, claimantLabel }: Widge
                   active={active}
                   mono
                   color="var(--color-ink3)"
-                  onClick={() =>
-                    onPatch({ owners: toggleIn(state.owners, owner) })
-                  }
+                  onClick={() => onPatch({ profile })}
                 />
               )
             })}

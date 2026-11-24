@@ -44,6 +44,8 @@ interface Props {
   terms: string[]
   selected: boolean
   onClick: () => void
+  // When set, the claimant name becomes a link to its profile page.
+  onOpenClaimant?: (claimantKey: string) => void
 }
 
 export function TypeBadge({ type }: { type: number }) {
@@ -56,7 +58,7 @@ export function TypeBadge({ type }: { type: number }) {
   )
 }
 
-export function ResultCard({ notice: n, excerpt, claimantLabel, terms, selected, onClick }: Props) {
+export function ResultCard({ notice: n, excerpt, claimantLabel, terms, selected, onClick, onOpenClaimant }: Props) {
   const targets = n.targets
   const shown = targets.slice(0, 3)
   const rest = targets.length - shown.length
@@ -72,6 +74,7 @@ export function ResultCard({ notice: n, excerpt, claimantLabel, terms, selected,
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
           onClick()
@@ -93,7 +96,20 @@ export function ResultCard({ notice: n, excerpt, claimantLabel, terms, selected,
           {n.date || 'undated'}
         </span>
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold tracking-tight text-ink">
-          <Highlight text={claimantLabel} terms={terms} />
+          {onOpenClaimant ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenClaimant(n.claimantKey)
+              }}
+              onKeyDown={(e) => e.stopPropagation()}
+              className="inline-block max-w-full truncate align-bottom hover:text-accent hover:underline"
+            >
+              <Highlight text={claimantLabel} terms={terms} />
+            </button>
+          ) : (
+            <Highlight text={claimantLabel} terms={terms} />
+          )}
         </span>
         <span className="shrink-0 rounded border border-edge bg-panel2 px-1.5 py-px text-[10px] font-medium text-ink3">
           {SOURCE_LABELS[n.source]}

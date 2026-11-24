@@ -27,6 +27,8 @@ import { FilterBar } from './components/FilterBar'
 import { ResultList } from './components/ResultList'
 import { DetailPanel } from './components/DetailPanel'
 import { Footer } from './components/Footer'
+import { ProfileView } from './components/ProfileView'
+import { CountersView } from './components/CountersView'
 import type { PickOption } from './components/PickList'
 
 interface WorkerResult {
@@ -205,6 +207,8 @@ export default function App() {
     state.counterOnly,
     state.source,
     state.detail,
+    state.profile,
+    state.view,
   ])
 
   // Lazy index loading, triggered by the source filter or a deep-linked
@@ -216,7 +220,10 @@ export default function App() {
       if (!info.lazy || lazyInflight.current.has(info.id)) continue
       const wanted =
         state.source === info.id ||
-        (state.detail !== null && state.detail.startsWith(`${info.id}:`))
+        (state.detail !== null && state.detail.startsWith(`${info.id}:`)) ||
+        // `c:<source>:<key>` claimant profiles need that source's index.
+        (state.profile !== null &&
+          state.profile.startsWith(`c:${info.id}:`))
       if (!wanted) continue
       lazyInflight.current.add(info.id)
       loadSource(info)
@@ -232,7 +239,7 @@ export default function App() {
           lazyInflight.current.delete(info.id)
         })
     }
-  }, [manifest, state.source, state.detail])
+  }, [manifest, state.source, state.detail, state.profile])
 
   const notices = useMemo<Notice[] | null>(
     () => (sources.length === 0 ? null : sources.flatMap((s) => s.notices)),
@@ -537,7 +544,14 @@ export default function App() {
     return filtered.findIndex((n) => n.id === state.detail)
   }, [filtered, state.detail])
 
-  const detailNotice = detailIndex >= 0 ? filtered[detailIndex] : null
+  // Profile and counters views replace the list, so a notice opened from
+  // there may not be in `filtered`. Fall back to the full corpus; prev/next
+  // nav stays within `filtered` (detailIndex -1 disables it).
+  const detailNotice = useMemo(() => {
+    if (!state.detail || !notices) return null
+    if (detailIndex >= 0) return filtered[detailIndex]
+    return notices.find((n) => n.id === state.detail) ?? null
+  }, [state.detail, notices, filtered, detailIndex])
   const pristine =
     state.q === '' &&
     !state.from &&
@@ -558,14 +572,32 @@ export default function App() {
 
   const navDetail = useCallback(
     (dir: 1 | -1) => {
+      if (detailIndex < 0) return
       const next = detailIndex + dir
       if (next >= 0 && next < filtered.length) openDetail(next)
     },
     [detailIndex, filtered, openDetail],
   )
 
+  const openDetailById = useCallback(
+    (id: string) => {
+      applyState({ ...stateRef.current, detail: id }, { push: true })
+    },
+    [applyState],
+  )
+
+  const openClaimantProfile = useCallback(
+    (key: string) => {
+      applyState(
+        { ...stateRef.current, profile: `c:${key}`, view: '', detail: null },
+        { push: true },
+      )
+    },
+    [applyState],
+  )
+
   const closeDetail = useCallback(() => {
-    const cur = detailIndex >= 0 ? filtered[detailIndex] : null
+    const cur = detailNotice
     if (cur) {
       setClosing(cur)
       window.setTimeout(() => {
@@ -575,7 +607,7 @@ export default function App() {
     } else {
       applyState({ ...stateRef.current, detail: null }, { push: true })
     }
-  }, [detailIndex, filtered, applyState])
+  }, [detailNotice, applyState])
 
   // ---------- keyboard ----------
   useEffect(() => {
@@ -596,6 +628,14 @@ export default function App() {
         }
         return
       }
+      // Profile and counters views replace the list; Escape backs out.
+      if (s.profile || s.view) {
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          applyState({ ...s, profile: null, view: '' }, { push: true })
+        }
+        return
+      }
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault()
         setSelIndex((i) => Math.min(i + 1, filtered.length - 1))
@@ -609,7 +649,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [filtered.length, selIndex, openDetail, navDetail, closeDetail])
+  }, [filtered.length, selIndex, openDetail, navDetail, closeDetail, applyState])
 
   // ---------- full text search ----------
   const toggleFullText = useCallback(async () => {
@@ -707,6 +747,32 @@ export default function App() {
     return sources.some((s) => s.info.id === state.source) ? null : info
   }, [state.source, manifest, sources])
 
+  // True while a source backing the profile/counters view may still be
+  // streaming: lazy indexes not yet fetched, or split-index tails pending.
+  const viewLoading = useMemo(() => {
+    if (!manifest) return false
+    const relevant = new Set<SourceId>()
+    if (state.profile) {
+      if (state.profile.startsWith('c:')) {
+        relevant.add(state.profile.slice(2).split(':')[0] as SourceId)
+      } else {
+        relevant.add('github')
+        relevant.add('lbry')
+      }
+    } else if (state.view === 'counters') {
+      relevant.add('github')
+      relevant.add('lbry')
+    } else {
+      return false
+    }
+    return [...relevant].some((id) => {
+      const info = manifest.sources.find((s) => s.id === id)
+      if (!info) return false
+      const loaded = sources.find((s) => s.info.id === id)
+      return info.lazy ? !loaded : !loaded?.complete
+    })
+  }, [state.profile, state.view, manifest, sources])
+
   // ---------- render ----------
   if (loadError) {
     return (
@@ -751,6 +817,29 @@ export default function App() {
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
         {!stats || !manifest ? (
           <DashboardSkeleton />
+        ) : state.profile ? (
+          <ProfileView
+            profile={state.profile}
+            notices={notices}
+            loading={viewLoading}
+            state={state}
+            onPatch={patch}
+            claimantLabel={claimantLabel}
+            excerpts={excerptMap}
+            onExcerptsNeeded={ensureExcerpts}
+            onOpenDetail={openDetailById}
+          />
+        ) : state.view === 'counters' ? (
+          <CountersView
+            notices={notices}
+            loading={viewLoading}
+            claimantLabel={claimantLabel}
+            excerpts={excerptMap}
+            onExcerptsNeeded={ensureExcerpts}
+            onBack={() => patch({ view: '' })}
+            onOpenProfile={(p) => patch({ profile: p, view: '' })}
+            onOpenDetail={openDetailById}
+          />
         ) : (
           <div className="space-y-4">
             <DashboardTop stats={stats} state={state} onPatch={patch} sources={manifest.sources} />
@@ -794,6 +883,7 @@ export default function App() {
                     resetKey={resetKey}
                     excerpts={excerptMap}
                     onExcerptsNeeded={ensureExcerpts}
+                    onOpenClaimant={openClaimantProfile}
                   />
                 ) : (
                   <ListSkeleton />
@@ -835,6 +925,7 @@ export default function App() {
         onNav={navDetail}
         canPrev={detailIndex > 0}
         canNext={detailIndex >= 0 && detailIndex < filtered.length - 1}
+        onOpenClaimant={openClaimantProfile}
       />
     </div>
   )

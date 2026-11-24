@@ -12,6 +12,10 @@ export interface AppState {
   source: SourceId | '' // '' = all sources
   sort: SortMode
   detail: string | null // notice id (`source:path`)
+  // Entity profile view: `c:<claimantKey>` | `o:<owner>` | `r:<owner>/<repo>`.
+  profile: string | null
+  // Alternate full-page views; '' = the default dashboard.
+  view: string
 }
 
 export const DEFAULT_STATE: AppState = {
@@ -25,6 +29,18 @@ export const DEFAULT_STATE: AppState = {
   source: '',
   sort: 'auto',
   detail: null,
+  profile: null,
+  view: '',
+}
+
+// `p` holds a profile ref (`c:github:sony`, `o:owner`, `r:owner/repo`);
+// accept only the known kinds so stray params cannot break the views.
+function readProfile(v: string | null): string | null {
+  if (!v) return null
+  const kind = v.slice(0, v.indexOf(':'))
+  const rest = v.slice(v.indexOf(':') + 1)
+  if (!rest || (kind !== 'c' && kind !== 'o' && kind !== 'r')) return null
+  return v
 }
 
 export function readState(): AppState {
@@ -49,6 +65,8 @@ export function readState(): AppState {
       ? (p.get('s') as SortMode)
       : 'auto'),
     detail: p.get('n'),
+    profile: readProfile(p.get('p')),
+    view: p.get('v') === 'counters' ? 'counters' : '',
   }
 }
 
@@ -64,6 +82,8 @@ export function stateToParams(s: AppState): URLSearchParams {
   if (s.source) p.set('src', s.source)
   if (s.sort !== 'auto') p.set('s', s.sort)
   if (s.detail) p.set('n', s.detail)
+  if (s.profile) p.set('p', s.profile)
+  if (s.view) p.set('v', s.view)
   return p
 }
 

@@ -25,6 +25,7 @@ interface Props {
   onNav: (dir: 1 | -1) => void
   canPrev: boolean
   canNext: boolean
+  onOpenClaimant?: (claimantKey: string) => void
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -311,6 +312,7 @@ export function DetailPanel({
   onNav,
   canPrev,
   canNext,
+  onOpenClaimant,
 }: Props) {
   const [extractedFor, setExtractedFor] = useState<{
     path: string
@@ -346,7 +348,16 @@ export function DetailPanel({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="truncate text-[16px] font-semibold tracking-tight">
-                {displayClaimant}
+                {onOpenClaimant ? (
+                  <button
+                    onClick={() => onOpenClaimant(notice.claimantKey)}
+                    className="inline-block max-w-full truncate align-bottom hover:text-accent hover:underline"
+                  >
+                    {displayClaimant}
+                  </button>
+                ) : (
+                  displayClaimant
+                )}
               </h2>
               <TypeBadge type={notice.type} />
               {notice.hasCounter && (

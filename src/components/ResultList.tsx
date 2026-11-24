@@ -16,6 +16,7 @@ interface Props {
   // Called with the sidecar chunks covering the rendered window plus a
   // prefetch margin, so scrolling stays ahead of the fetches.
   onExcerptsNeeded: (chunks: string[]) => void
+  onOpenClaimant?: (claimantKey: string) => void
 }
 
 // How far past the rendered window to prefetch excerpt chunks, in rows.
@@ -30,6 +31,7 @@ export function ResultList({
   resetKey,
   excerpts,
   onExcerptsNeeded,
+  onOpenClaimant,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null)
 
@@ -103,6 +105,7 @@ export function ResultList({
                 terms={terms}
                 selected={vi.index === selectedIndex}
                 onClick={() => onOpen(vi.index)}
+                onOpenClaimant={onOpenClaimant}
               />
             </div>
           )
