@@ -51,15 +51,17 @@ jobs:
       - name: Lighthouse mobile
         run: |
           pnpm exec lhci collect --config=lighthouserc.json
+          status=0
+          pnpm exec lhci assert --config=lighthouserc.json || status=$?
           mv .lighthouseci .lighthouseci-mobile
+          exit $status
       - name: Lighthouse desktop
         run: |
           pnpm exec lhci collect --config=lighthouserc.desktop.json
+          status=0
+          pnpm exec lhci assert --config=lighthouserc.desktop.json || status=$?
           mv .lighthouseci .lighthouseci-desktop
-      - name: Assert mobile
-        run: pnpm exec lhci assert --lhr .lighthouseci-mobile --config=lighthouserc.json
-      - name: Assert desktop
-        run: pnpm exec lhci assert --lhr .lighthouseci-desktop --config=lighthouserc.desktop.json
+          exit $status
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
