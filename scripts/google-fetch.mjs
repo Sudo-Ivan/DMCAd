@@ -9,7 +9,7 @@
 //   requests.csv.deflate  raw deflate stream of requests.csv
 //   requests.csv          inflated CSV, reused while meta.json matches
 
-import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { get } from 'node:https'
 import { join } from 'node:path'
 import { pipeline } from 'node:stream/promises'
@@ -174,6 +174,9 @@ async function fetchMember(entry, headers) {
   const dst = createWriteStream(`${outPath}.part`)
   await pipeline(src, createInflateRaw(), dst)
   renameSync(`${outPath}.part`, outPath)
+  // the compressed member is only a download/inflate intermediate; once
+  // inflated it is dead weight (1.9 GB for requests.csv)
+  rmSync(deflatePath, { force: true })
   console.log(`${base}: done -> ${outPath}`)
 }
 
