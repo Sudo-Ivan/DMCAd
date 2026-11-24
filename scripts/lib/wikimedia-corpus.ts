@@ -14,7 +14,7 @@ import {
   WIKI_UA,
   type WikiParsed,
 } from '../../src/lib/wikimedia'
-import { TYPE_NOTICE } from '../../src/lib/parse'
+import { hasVisibleName, TYPE_NOTICE } from '../../src/lib/parse'
 
 const DELAY_MS = 350
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -177,7 +177,7 @@ export async function buildWikimediaCorpus(): Promise<SourceBuild> {
     }
     typeCounts.set(TYPE_NOTICE, (typeCounts.get(TYPE_NOTICE) ?? 0) + 1)
     rows.push([
-      title, p.date, '', p.claimantKey, p.claimant, TYPE_NOTICE,
+      title, p.date, '', p.claimantKey, hasVisibleName(p.claimant) ? p.claimant : '', TYPE_NOTICE,
       p.urlCount, '', p.excerpt, p.length, 0,
       p.files, p.attachments, p.subject,
     ])
@@ -199,6 +199,7 @@ export async function buildWikimediaCorpus(): Promise<SourceBuild> {
     let best = ''
     let bestN = 0
     for (const [name, count] of labels) {
+      if (!hasVisibleName(name)) continue
       if (count > bestN) {
         best = name
         bestN = count

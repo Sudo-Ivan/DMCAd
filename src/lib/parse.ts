@@ -73,7 +73,7 @@ export function normalizeClaimantKey(name: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim()
 }
 
@@ -267,6 +267,12 @@ export function isPlausibleClaimant(s: string): boolean {
   if (/^[a-z]/.test(t) && !/^[a-z][A-Z]/.test(t)) return false
   if (CLAUSE_RE.test(t)) return false
   return true
+}
+
+// Names made only of punctuation, symbols, or invisible marks (masked
+// requester names like "••••@••••.••••") are useless as labels.
+export function hasVisibleName(s: string): boolean {
+  return /[\p{L}\p{N}]/u.test(s)
 }
 
 function cleanClaimant(raw: string): string | null {

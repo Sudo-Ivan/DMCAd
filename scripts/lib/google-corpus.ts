@@ -23,7 +23,7 @@ import {
   splitCsvLine,
   type GoogleRequest,
 } from '../../src/lib/google'
-import { normalizeClaimantKey, TYPE_REQUEST } from '../../src/lib/parse'
+import { hasVisibleName, normalizeClaimantKey, TYPE_REQUEST } from '../../src/lib/parse'
 import { ROOT, emptyStats, topEntries, type SourceBuild } from './emit'
 
 const CSV = join(ROOT, '.cache', 'google', 'requests.csv.deflate')
@@ -214,7 +214,7 @@ export async function buildGoogleCorpus(): Promise<SourceBuild> {
       `${urls.toLocaleString('en-US')} URL${urls === 1 ? '' : 's'} requested`
 
     indexRows.push([
-      `owner-${oid}`, a.last, '', key, name, TYPE_REQUEST, urls, '',
+      `owner-${oid}`, a.last, '', key, hasVisibleName(name) ? name : '', TYPE_REQUEST, urls, '',
       excerpt, 0, 0,
       a.requests, a.removed, a.notIndexed, a.noAction, a.pending, a.abuser,
       a.first, a.last, years, org,
@@ -236,6 +236,7 @@ export async function buildGoogleCorpus(): Promise<SourceBuild> {
     let best = ''
     let bestN = 0
     for (const [name, count] of labels) {
+      if (!hasVisibleName(name)) continue
       if (count > bestN) {
         best = name
         bestN = count

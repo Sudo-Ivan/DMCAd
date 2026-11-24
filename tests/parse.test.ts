@@ -10,6 +10,7 @@ import {
   slugFromPath,
   titleCaseSlug,
   TYPE_COPYRIGHT,
+  hasVisibleName,
   isPlausibleClaimant,
 } from '../src/lib/parse'
 
@@ -164,5 +165,14 @@ describe('claimant plausibility', () => {
     expect(isPlausibleClaimant('eBay')).toBe(true)
     expect(isPlausibleClaimant('John Wiley & Sons')).toBe(true)
     expect(isPlausibleClaimant('x'.repeat(80))).toBe(false)
+  })
+
+  it('hasVisibleName rejects masked and symbol-only names', () => {
+    expect(hasVisibleName('‎  • • • • @ • • • • . • • • • ‎')).toBe(false)
+    expect(hasVisibleName('***')).toBe(false)
+    expect(hasVisibleName('')).toBe(false)
+    expect(hasVisibleName('Nhà Thuốc Long Châu')).toBe(true)
+    expect(hasVisibleName('ООО Ромашка')).toBe(true)
+    expect(hasVisibleName('John Wiley & Sons')).toBe(true)
   })
 })
