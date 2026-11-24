@@ -61,24 +61,6 @@ Body keys are namespaced `source:path` to match record ids. Claimant
 keys are namespaced the same way so facets merge cleanly across
 sources.
 
-## Layout
-
-```
-src/lib/sources.ts       source ids, labels, order
-src/lib/rows.ts          index row codec -> unified Notice shape
-src/lib/parse.ts         github/lbry notice parsing, shared helpers
-src/lib/google.ts        Transparency Report CSV parser
-src/lib/wikimedia.ts     Legal:DMCA wikitext/API parser
-src/lib/data.ts          manifest + per-source loaders, stats merge
-src/lib/search.worker.ts MiniSearch index in a web worker
-src/lib/markdown.tsx     small markdown renderer, no raw HTML
-src/components/          header, dashboard, timeline, filters, list, detail
-scripts/build-data.ts    dataset builder entry point
-scripts/lib/             per-source corpus builders
-scripts/google-fetch.mjs range-request fetcher for the Google zip
-tests/                   parser unit tests and fixtures
-```
-
 Search runs in a worker. Full-text search is opt-in and downloads all
 body chunks once. All UI state lives in the query string, so views are
 shareable. `.github/workflows/deploy.yml` rebuilds the data daily and
