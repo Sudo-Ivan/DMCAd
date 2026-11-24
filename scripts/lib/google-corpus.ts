@@ -6,12 +6,16 @@
 // MIN_URLS total URLs become one record each, carrying request/URL
 // totals, date range, yearly breakdown, and top reporting org.
 //
-// The inflated CSV is cached in .cache/google keyed by the zip's
-// Last-Modified header (see scripts/google-fetch.mjs).
+// The deflate member is cached in .cache/google keyed by the zip's
+// Last-Modified header (see scripts/google-fetch.mjs) and inflated
+// on the fly while parsing.
 
 import { execFileSync } from 'node:child_process'
 import { createReadStream, existsSync, readFileSync } from 'node:fs'
 import { createInterface } from 'node:readline'
+import { PassThrough } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import { createInflateRaw } from 'node:zlib'
 import { join } from 'node:path'
 import {
   csvLineOpen,
@@ -22,7 +26,7 @@ import {
 import { normalizeClaimantKey, TYPE_REQUEST } from '../../src/lib/parse'
 import { ROOT, emptyStats, topEntries, type SourceBuild } from './emit'
 
-const CSV = join(ROOT, '.cache', 'google', 'requests.csv')
+const CSV = join(ROOT, '.cache', 'google', 'requests.csv.deflate')
 const FETCH = join(ROOT, 'scripts', 'google-fetch.mjs')
 
 const MIN_REQUESTS = 10
@@ -45,52 +49,63 @@ interface OwnerAgg {
   years?: Map<string, number>
 }
 
-function ensureCsv() {
+function ensureGoogleData() {
   if (!existsSync(CSV)) {
-    console.log('[google] requests.csv not cached, fetching via range requests')
+    console.log('[google] requests.csv.deflate not cached, fetching via range requests')
   }
   execFileSync('node', [FETCH], { stdio: 'inherit' })
-  if (!existsSync(CSV)) throw new Error('google requests.csv missing after fetch')
+  if (!existsSync(CSV)) throw new Error('google requests.csv.deflate missing after fetch')
 }
 
 // Row iterator that reassembles records spanning multiple physical
-// lines (quoted fields may contain newlines).
+// lines (quoted fields may contain newlines). The CSV is stored as a
+// raw deflate member and inflated while streaming.
 async function* records(): AsyncGenerator<GoogleRequest> {
+  const inflated = new PassThrough()
+  inflated.setEncoding('utf-8')
+  const done = pipeline(createReadStream(CSV), createInflateRaw(), inflated)
+  done.catch(() => {}) // the rejection is surfaced by `await done` below
   const rl = createInterface({
-    input: createReadStream(CSV, { encoding: 'utf-8' }),
+    input: inflated,
     crlfDelay: Infinity,
   })
-  let first = true
-  let pending = ''
-  for await (const raw of rl) {
-    if (first) {
-      first = false
-      continue
-    }
-    if (!pending) {
-      if (!csvLineOpen(raw)) {
-        const r = parseGoogleRow(splitCsvLine(raw))
-        if (r) yield r
-      } else {
-        pending = raw
+  try {
+    let first = true
+    let pending = ''
+    for await (const raw of rl) {
+      if (first) {
+        first = false
+        continue
       }
-      continue
+      if (!pending) {
+        if (!csvLineOpen(raw)) {
+          const r = parseGoogleRow(splitCsvLine(raw))
+          if (r) yield r
+        } else {
+          pending = raw
+        }
+        continue
+      }
+      pending += '\n' + raw
+      if (!csvLineOpen(pending)) {
+        const r = parseGoogleRow(splitCsvLine(pending))
+        pending = ''
+        if (r) yield r
+      }
     }
-    pending += '\n' + raw
-    if (!csvLineOpen(pending)) {
+    if (pending) {
       const r = parseGoogleRow(splitCsvLine(pending))
-      pending = ''
       if (r) yield r
     }
-  }
-  if (pending) {
-    const r = parseGoogleRow(splitCsvLine(pending))
-    if (r) yield r
+  } finally {
+    rl.close()
+    inflated.destroy()
+    await done
   }
 }
 
 export async function buildGoogleCorpus(): Promise<SourceBuild> {
-  ensureCsv()
+  ensureGoogleData()
   const meta = JSON.parse(readFileSync(join(ROOT, '.cache', 'google', 'meta.json'), 'utf-8'))
   const revision = meta.lastModified ?? 'unknown'
   console.log(`[google] parsing ${CSV}`)

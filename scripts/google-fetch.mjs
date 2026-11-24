@@ -1,13 +1,16 @@
 // Downloads members of the Google Transparency Report copyright-removals
 // zip without fetching the whole archive, using HTTP range requests.
 //
-//   node scripts/google-fetch.mjs           fetch/inflate requests.csv + README
+//   node scripts/google-fetch.mjs           fetch requests.csv.deflate + README
 //   node scripts/google-fetch.mjs --status  print cache status
 //
 // Cache layout (.cache/google, gitignored):
-//   meta.json             zip Last-Modified/etag and member offsets
-//   requests.csv.deflate  raw deflate stream of requests.csv
-//   requests.csv          inflated CSV, reused while meta.json matches
+//   meta.json               zip Last-Modified/etag
+//   requests.csv.deflate    raw deflate stream of requests.csv; the corpus
+//                           builder inflates it on the fly (~1.9 GB)
+//   README.txt              inflated readme
+//   .fetched                timestamp of the last member download; CI uses
+//                           it to decide whether the cache is worth saving
 
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { get } from 'node:https'
@@ -142,15 +145,11 @@ function rangeStream(start, end, dest) {
   })
 }
 
-async function fetchMember(entry, headers) {
+async function fetchMember(entry) {
   const base = entry.name.split('/').pop()
   const deflatePath = join(CACHE, `${base}.deflate`)
   const outPath = join(CACHE, base)
 
-  if (existsSync(outPath) && statSync(outPath).size === entry.usize) {
-    console.log(`${base}: already inflated (${entry.usize} bytes), skipping`)
-    return
-  }
   if (!existsSync(deflatePath) || statSync(deflatePath).size !== entry.csize) {
     const { dataStart, name } = await localDataStart(entry.lho)
     if (name !== entry.name) {
@@ -164,19 +163,28 @@ async function fetchMember(entry, headers) {
     const tmp = `${deflatePath}.part`
     await rangeStream(dataStart, dataStart + entry.csize - 1, createWriteStream(tmp))
     renameSync(tmp, deflatePath)
+    // tells CI the cache changed and is worth saving again
+    writeFileSync(join(CACHE, '.fetched'), new Date().toISOString())
     console.log(`${base}: compressed member cached`)
   } else {
-    console.log(`${base}: compressed member cached, inflating`)
+    console.log(`${base}: compressed member cached`)
   }
 
+  if (base === 'requests.csv') {
+    // the corpus streams the deflate member directly; inflating it to a
+    // plain csv would cost ~6 GB of disk for no benefit
+    return
+  }
+
+  if (existsSync(outPath) && statSync(outPath).size === entry.usize) {
+    console.log(`${base}: already inflated (${entry.usize} bytes), skipping`)
+    return
+  }
   console.log(`${base}: inflating...`)
   const src = createReadStream(deflatePath)
   const dst = createWriteStream(`${outPath}.part`)
   await pipeline(src, createInflateRaw(), dst)
   renameSync(`${outPath}.part`, outPath)
-  // the compressed member is only a download/inflate intermediate; once
-  // inflated it is dead weight (1.9 GB for requests.csv)
-  rmSync(deflatePath, { force: true })
   console.log(`${base}: done -> ${outPath}`)
 }
 
@@ -195,22 +203,44 @@ async function main() {
     console.log(`  member ${m.name}: ${(m.usize / 1e9).toFixed(2)} GB uncompressed, method ${m.method}`)
   }
 
-  // Freshness: if the cached files match the remote Last-Modified, skip.
+  // inflated requests.csv is obsolete; the corpus streams the deflate
+  // member, so drop any plain copy left by older versions
+  rmSync(join(CACHE, 'requests.csv'), { force: true })
+
+  // Freshness: if the cached members match the remote Last-Modified, skip.
+  // requests.csv only ever exists as its deflate member; other members may
+  // be cached either way (CI only stores the inflated README).
+  let stale = false
   if (existsSync(metaPath)) {
     try {
       const old = JSON.parse(readFileSync(metaPath, 'utf8'))
       if (old.lastModified === lastModified) {
         const ok = wanted.every((m) => {
-          const p = join(CACHE, m.name.split('/').pop())
-          return existsSync(p) && statSync(p).size === m.usize
+          const base = m.name.split('/').pop()
+          const deflate = join(CACHE, `${base}.deflate`)
+          if (existsSync(deflate) && statSync(deflate).size === m.csize) return true
+          if (base === 'requests.csv') return false
+          const plain = join(CACHE, base)
+          return existsSync(plain) && statSync(plain).size === m.usize
         })
         if (ok) {
           console.log('cache is up to date (last-modified unchanged), nothing to do')
           return
         }
+      } else {
+        stale = true
       }
     } catch {
       /* fall through to refetch */
+    }
+  }
+
+  // a republished zip invalidates cached members even when sizes coincide
+  if (stale) {
+    for (const m of wanted) {
+      const base = m.name.split('/').pop()
+      rmSync(join(CACHE, `${base}.deflate`), { force: true })
+      rmSync(join(CACHE, base), { force: true })
     }
   }
 
@@ -219,7 +249,7 @@ async function main() {
 
   for (const m of wanted) {
     if (m.method !== 8) throw new Error(`${m.name}: unsupported compression method ${m.method}`)
-    await fetchMember(m, headers)
+    await fetchMember(m)
   }
   console.log('all done')
 }
