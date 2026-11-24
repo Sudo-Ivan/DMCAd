@@ -35,9 +35,14 @@ export function writeJson(path: string, data: unknown) {
   writeFileSync(path, JSON.stringify(data))
 }
 
+// SKIP_BODIES=1 omits bodies/** (full-text search data) for builds that do
+// not need it, e.g. CI Lighthouse runs.
+const SKIP_BODIES = process.env.SKIP_BODIES === '1'
+
 export function emitSource(b: SourceBuild) {
   writeJson(join(OUT, 'src', `${b.id}.json`), b.index)
   writeJson(join(OUT, 'stats', `${b.id}.json`), b.stats)
+  if (SKIP_BODIES) return
   for (const [chunk, body] of b.bodies) {
     // Keys are namespaced with the source id so they line up with
     // Notice.id (`${source}:${path}`) in the detail panel and the

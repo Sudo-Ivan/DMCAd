@@ -1,0 +1,71 @@
+name: Lighthouse
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lighthouse-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lighthouse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The google corpus is a lazy index the default view never fetches,
+      # and bodies/** only feeds full-text search, so CI builds the rest.
+      - name: Cache source repos
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .cache/dmca
+            .cache/lbry-dmca
+          key: source-repos-${{ github.run_id }}
+          restore-keys: source-repos-
+      - name: Build dataset
+        run: SKIP_SOURCES=google SKIP_BODIES=1 pnpm data
+      - run: pnpm build
+      - name: Start preview server
+        run: |
+          pnpm preview --port 4173 --strictPort > /tmp/preview.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:4173/ > /dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/preview.log
+          exit 1
+      - name: Lighthouse mobile
+        run: |
+          pnpm exec lhci collect --config=lighthouserc.json
+          mv .lighthouseci .lighthouseci-mobile
+      - name: Lighthouse desktop
+        run: |
+          pnpm exec lhci collect --config=lighthouserc.desktop.json
+          mv .lighthouseci .lighthouseci-desktop
+      - name: Assert mobile
+        run: pnpm exec lhci assert --lhr .lighthouseci-mobile --config=lighthouserc.json
+      - name: Assert desktop
+        run: pnpm exec lhci assert --lhr .lighthouseci-desktop --config=lighthouserc.desktop.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: lighthouse-reports
+          path: |
+            .lighthouseci-mobile
+            .lighthouseci-desktop
+            .lighthouseci
+          retention-days: 14

@@ -17,6 +17,16 @@ import { buildWikimediaCorpus } from './lib/wikimedia-corpus'
 import { emitSource, OUT, type SourceBuild } from './lib/emit'
 import { SOURCE_LABELS, SOURCE_ORDER, type SourceId } from '../src/lib/sources'
 
+// SKIP_SOURCES=google,wikimedia skips individual builders (used by CI,
+// where the lazy google corpus is too heavy to fetch for a Lighthouse run).
+// SKIP_BODIES=1 skips writing bodies/** (only needed for full-text search).
+const SKIP_SOURCES = new Set(
+  (process.env.SKIP_SOURCES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+)
+
 async function main() {
   // regenerate everything so stale chunks never linger
   rmSync(OUT, { recursive: true, force: true })
@@ -27,6 +37,10 @@ async function main() {
     label: string,
     fn: () => Promise<SourceBuild>,
   ): Promise<void> => {
+    if (SKIP_SOURCES.has(label)) {
+      console.log(`[build] ${label} skipped via SKIP_SOURCES`)
+      return
+    }
     try {
       builds.push(await fn())
     } catch (e) {
