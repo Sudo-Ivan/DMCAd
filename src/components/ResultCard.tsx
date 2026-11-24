@@ -93,7 +93,7 @@ export function ResultCard({ notice: n, claimantLabel, terms, selected, onClick 
       </div>
 
       {n.excerpt && (
-        <p className="mt-1 line-clamp-2 pl-[98px] text-[12.5px] leading-5 text-ink2">
+        <p className="mt-1 line-clamp-2 min-h-10 pl-[98px] text-[12.5px] leading-5 text-ink2">
           <Highlight text={n.excerpt} terms={terms} />
         </p>
       )}

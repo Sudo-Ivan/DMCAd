@@ -1,5 +1,5 @@
 import type { Stats } from '../lib/data'
-import type { LoadedSource } from '../lib/data'
+import type { SourceInfo } from '../lib/data'
 
 const SOURCE_LINKS: Record<string, { label: string; href: string }> = {
   github: { label: 'github/dmca', href: 'https://github.com/github/dmca' },
@@ -19,11 +19,11 @@ export function Footer({
   sources,
 }: {
   stats: Stats | null
-  sources?: LoadedSource[]
+  sources?: SourceInfo[]
 }) {
   const year = new Date().getFullYear().toString()
   const shown = sources?.length
-    ? sources.map((s) => s.info.id)
+    ? sources.map((s) => s.id)
     : ['github']
   return (
     <footer className="mt-auto border-t border-edge py-8 text-[12px] text-ink3">
@@ -71,7 +71,7 @@ export function Footer({
           Unofficial viewer. Not affiliated with the data sources.
         </span>
       </div>
-      <div className="mx-auto mt-3 max-w-6xl px-4 text-[11px] text-ink3/60">
+      <div className="mx-auto mt-3 max-w-6xl px-4 text-[11px] text-ink3">
         © {year}
       </div>
     </footer>

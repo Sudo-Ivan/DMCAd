@@ -10,7 +10,7 @@
   --color-edge2: #d4d4cd;
   --color-ink: #1c1c1a;
   --color-ink2: #55554f;
-  --color-ink3: #8a8a83;
+  --color-ink3: #686860;
   --color-accent: #2f5fd0;
   --color-accent-soft: #e4ebfa;
   --color-raised: #fcfcfa;
@@ -28,7 +28,7 @@
   --color-edge2: #33333a;
   --color-ink: #e8e8e4;
   --color-ink2: #a3a39c;
-  --color-ink3: #6d6d66;
+  --color-ink3: #8f8f88;
   --color-accent: #7aa2f7;
   --color-accent-soft: #1d2a45;
   --color-raised: #1e1e25;
@@ -36,6 +36,9 @@
 
 html {
   color-scheme: light;
+  /* Reserve the classic-scrollbar gutter up front so centered content
+     never shifts when the page becomes scrollable. */
+  scrollbar-gutter: stable;
 }
 html.dark {
   color-scheme: dark;

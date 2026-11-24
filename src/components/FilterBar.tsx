@@ -20,6 +20,7 @@ interface Props {
   onPatch: (p: Partial<AppState>) => void
   total: number
   shown: number
+  loading?: boolean
   took: number | null
   claimantLabel: (key: string) => string
   claimantOptions: PickOption[]
@@ -166,6 +167,7 @@ export function FilterBar({
   onPatch,
   total,
   shown,
+  loading,
   took,
   claimantLabel,
   claimantOptions,
@@ -344,7 +346,7 @@ export function FilterBar({
         </div>
       </div>
 
-      {shown === 0 && (
+      {shown === 0 && !loading && (
         <div className="flex items-center gap-2 rounded-lg border border-dashed border-edge2 bg-panel px-4 py-3 text-[13px] text-ink2">
           <SearchX size={15} className="text-ink3" />
           No notices match. Try a shorter query or clear some filters.

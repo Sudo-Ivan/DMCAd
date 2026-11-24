@@ -9,6 +9,18 @@
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f7f7f5" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0c0c0e" />
     <title>DMCAd</title>
+    <!-- Warm the cache for the small files the app fetches on startup so
+         they download in parallel with the JS bundle instead of waiting
+         for it. Mirrors the eager set in src/App.tsx: manifest, every
+         stats file, and the two small indexes (github is the deferred
+         tail, google is lazy). crossorigin lets fetch() reuse them. -->
+    <link rel="preload" as="fetch" href="%BASE_URL%data/sources.json" crossorigin />
+    <link rel="preload" as="fetch" href="%BASE_URL%data/stats/github.json" crossorigin />
+    <link rel="preload" as="fetch" href="%BASE_URL%data/stats/google.json" crossorigin />
+    <link rel="preload" as="fetch" href="%BASE_URL%data/stats/wikimedia.json" crossorigin />
+    <link rel="preload" as="fetch" href="%BASE_URL%data/stats/lbry.json" crossorigin />
+    <link rel="preload" as="fetch" href="%BASE_URL%data/src/wikimedia.json" crossorigin />
+    <link rel="preload" as="fetch" href="%BASE_URL%data/src/lbry.json" crossorigin />
     <script>
       ;(function () {
         try {

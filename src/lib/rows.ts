@@ -87,13 +87,39 @@ function toNotice(source: SourceId, rec: Record<string, unknown>): Notice {
   }
 }
 
-export function decodeIndex(idx: SourceIndexFile): Notice[] {
-  const out: Notice[] = new Array(idx.rows.length)
-  for (let i = 0; i < idx.rows.length; i++) {
+function decodeRange(
+  idx: SourceIndexFile,
+  out: Notice[],
+  start: number,
+  end: number,
+): void {
+  for (let i = start; i < end; i++) {
     const r = idx.rows[i]
     const rec: Record<string, unknown> = {}
     for (let j = 0; j < idx.fields.length; j++) rec[idx.fields[j]] = r[j]
     out[i] = toNotice(idx.source, rec)
+  }
+}
+
+export function decodeIndex(idx: SourceIndexFile): Notice[] {
+  const out: Notice[] = new Array(idx.rows.length)
+  decodeRange(idx, out, 0, idx.rows.length)
+  return out
+}
+
+const DECODE_CHUNK = 2048
+
+// Async variant that yields to the event loop between row slices so the
+// decode never becomes one long main-thread task on big indexes.
+export async function decodeIndexAsync(
+  idx: SourceIndexFile,
+): Promise<Notice[]> {
+  const out: Notice[] = new Array(idx.rows.length)
+  for (let start = 0; start < idx.rows.length; start += DECODE_CHUNK) {
+    decodeRange(idx, out, start, Math.min(start + DECODE_CHUNK, idx.rows.length))
+    if (start + DECODE_CHUNK < idx.rows.length) {
+      await new Promise((r) => setTimeout(r, 0))
+    }
   }
   return out
 }

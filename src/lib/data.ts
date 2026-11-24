@@ -1,5 +1,5 @@
 import type { Notice, SourceIndexFile } from './rows'
-import { decodeIndex } from './rows'
+import { decodeIndexAsync } from './rows'
 import type { SourceId } from './sources'
 
 export interface TopEntry {
@@ -61,18 +61,25 @@ export function loadManifest(): Promise<Manifest> {
   return fetchJson<Manifest>('sources.json')
 }
 
-export async function loadSource(info: SourceInfo): Promise<LoadedSource> {
-  const [idx, stats] = await Promise.all([
-    fetchJson<SourceIndexFile>(info.index),
-    fetchJson<Stats>(info.stats),
-  ])
-  // Claimant keys are stored bare per source; namespace them so they line
-  // up with Notice.claimantKey (`${source}:${key}`) after merging.
+// Stats files are tiny; they load for every source up front so dashboard
+// totals stay accurate even while a lazy index is still unfetched.
+// Claimant keys are stored bare per source; namespace them so they line
+// up with Notice.claimantKey (`${source}:${key}`) after merging.
+export async function loadStats(info: SourceInfo): Promise<Stats> {
+  const stats = await fetchJson<Stats>(info.stats)
   stats.topClaimants = stats.topClaimants.map((e) => ({
     ...e,
     key: `${info.id}:${e.key}`,
   }))
-  return { info, stats, notices: decodeIndex(idx) }
+  return stats
+}
+
+export async function loadSource(info: SourceInfo): Promise<LoadedSource> {
+  const [idx, stats] = await Promise.all([
+    fetchJson<SourceIndexFile>(info.index),
+    loadStats(info),
+  ])
+  return { info, stats, notices: await decodeIndexAsync(idx) }
 }
 
 export function loadBodies(chunk: string): Promise<Record<string, string>> {

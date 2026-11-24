@@ -3,8 +3,10 @@ import {
   loadBodies,
   loadManifest,
   loadSource,
+  loadStats,
   mergeStats,
   type LoadedSource,
+  type Manifest,
   type Stats,
 } from './lib/data'
 import { bodyChunk, type Notice } from './lib/rows'
@@ -14,7 +16,7 @@ import {
   urlFor,
   type AppState,
 } from './lib/appState'
-import { docsFromNotices, titleCaseSlug } from './lib/searchDocs'
+import { docFromNotice, titleCaseSlug, type SearchDoc } from './lib/searchDocs'
 import type { FullTextState } from './lib/types'
 import { Header } from './components/Header'
 import { DashboardTop, DashboardWidgets } from './components/Dashboard'
@@ -40,9 +42,9 @@ function isTypingTarget(e: KeyboardEvent): boolean {
 }
 
 export default function App() {
-  const [notices, setNotices] = useState<Notice[] | null>(null)
-  const [stats, setStats] = useState<Stats | null>(null)
+  const [manifest, setManifest] = useState<Manifest | null>(null)
   const [sources, setSources] = useState<LoadedSource[]>([])
+  const [stats, setStats] = useState<Stats | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [state, setState] = useState<AppState>(readState)
   const [dark, setDark] = useState(() =>
@@ -66,13 +68,23 @@ export default function App() {
   }, [state])
 
   // ---------- data loading ----------
+  // Eager sources load up front. Lazy indexes (the big google dump) are
+  // fetched only on demand: when their source filter is selected or a
+  // deep-linked detail id belongs to them. Stats files are tiny and load
+  // for every source so dashboard totals stay accurate throughout.
   useEffect(() => {
     let cancelled = false
     loadManifest()
-      .then(async (manifest) => {
-        // Non-lazy sources load up front; lazy ones are fetched on demand.
-        const eager = manifest.sources.filter((s) => !s.lazy)
-        const lazy = manifest.sources.filter((s) => s.lazy)
+      .then(async (m) => {
+        if (cancelled) return
+        setManifest(m)
+        const eager = m.sources.filter((s) => !s.lazy)
+        // Smallest indexes first, largest last: the list paints from the
+        // small sources well before the big download lands, which keeps
+        // first paint (and LCP) off the critical path of the bulk fetch.
+        const byCount = [...eager].sort((a, b) => a.count - b.count)
+        const head = byCount.slice(0, -1)
+        const tail = byCount.slice(-1)
         const loaded: LoadedSource[] = []
         const apply = () => {
           if (cancelled || loaded.length === 0) return
@@ -80,27 +92,23 @@ export default function App() {
             (a, b) => SOURCE_ORDER.indexOf(a.info.id) - SOURCE_ORDER.indexOf(b.info.id),
           )
           setSources(ordered)
-          setNotices(ordered.flatMap((s) => s.notices))
-          setStats(mergeStats(ordered.map((s) => s.stats)))
         }
-        await Promise.all(
-          eager.map((info) =>
-            loadSource(info).then((s) => {
-              loaded.push(s)
-              apply()
-            }),
-          ),
-        )
+        // Stats are tiny and every source's is needed for dashboard totals.
+        // Fetch them in parallel with the small indexes so stats and the
+        // first notices land in the same render pass.
+        const [allStats, headRes] = await Promise.all([
+          Promise.all(m.sources.map(loadStats)),
+          Promise.all(head.map(loadSource)),
+        ])
+        if (cancelled) return
+        loaded.push(...headRes)
+        setStats(mergeStats(allStats))
         apply()
-        // lazy sources stream in behind the eager set
-        for (const info of lazy) {
-          loadSource(info)
-            .then((s) => {
-              if (cancelled) return
-              loaded.push(s)
-              apply()
-            })
-            .catch(() => {})
+        for (const info of tail) {
+          const s = await loadSource(info)
+          if (cancelled) return
+          loaded.push(s)
+          apply()
         }
       })
       .catch((e) => {
@@ -110,6 +118,38 @@ export default function App() {
       cancelled = true
     }
   }, [])
+
+  // Lazy index loading, triggered by the source filter or a deep-linked
+  // detail id. lazyInflight dedupes concurrent triggers.
+  const lazyInflight = useRef(new Set<string>())
+  useEffect(() => {
+    if (!manifest) return
+    for (const info of manifest.sources) {
+      if (!info.lazy || lazyInflight.current.has(info.id)) continue
+      const wanted =
+        state.source === info.id ||
+        (state.detail !== null && state.detail.startsWith(`${info.id}:`))
+      if (!wanted) continue
+      lazyInflight.current.add(info.id)
+      loadSource(info)
+        .then((s) => {
+          setSources((prev) =>
+            [...prev, s].sort(
+              (a, b) =>
+                SOURCE_ORDER.indexOf(a.info.id) - SOURCE_ORDER.indexOf(b.info.id),
+            ),
+          )
+        })
+        .catch(() => {
+          lazyInflight.current.delete(info.id)
+        })
+    }
+  }, [manifest, state.source, state.detail])
+
+  const notices = useMemo<Notice[] | null>(
+    () => (sources.length === 0 ? null : sources.flatMap((s) => s.notices)),
+    [sources],
+  )
 
   // ---------- search worker ----------
   useEffect(() => {
@@ -154,9 +194,25 @@ export default function App() {
   )
 
   useEffect(() => {
-    if (!notices || !stats || !workerRef.current) return
-    const docs = docsFromNotices(notices, claimantLabel)
-    workerRef.current.postMessage({ type: 'init', docs })
+    const w = workerRef.current
+    if (!w || !notices) return
+    let cancelled = false
+    // Build docs in slices with event-loop yields so large indexes never
+    // become one long main-thread task.
+    void (async () => {
+      const docs: SearchDoc[] = new Array(notices.length)
+      const CHUNK = 4096
+      for (let s = 0; s < notices.length; s += CHUNK) {
+        if (cancelled) return
+        const e = Math.min(s + CHUNK, notices.length)
+        for (let i = s; i < e; i++) docs[i] = docFromNotice(notices[i], claimantLabel)
+        if (e < notices.length) await new Promise((r) => setTimeout(r, 0))
+      }
+      if (!cancelled) w.postMessage({ type: 'init', docs })
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [notices, stats, claimantLabel])
 
   // ---------- query -> worker ----------
@@ -259,12 +315,18 @@ export default function App() {
     switch (effective) {
       case 'old':
         sorted.sort((a, b) =>
-          (a.date || '9999').localeCompare(b.date || '9999'),
+          (a.date || '9999') < (b.date || '9999')
+            ? -1
+            : (a.date || '9999') > (b.date || '9999')
+              ? 1
+              : 0,
         )
         break
       case 'url':
         sorted.sort(
-          (a, b) => b.urlCount - a.urlCount || b.date.localeCompare(a.date),
+          (a, b) =>
+            b.urlCount - a.urlCount ||
+            (a.date < b.date ? 1 : a.date > b.date ? -1 : 0),
         )
         break
       case 'rel':
@@ -273,11 +335,11 @@ export default function App() {
             (a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0),
           )
         } else {
-          sorted.sort((a, b) => b.date.localeCompare(a.date))
+          sorted.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         }
         break
       default:
-        sorted.sort((a, b) => b.date.localeCompare(a.date))
+        sorted.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
     }
     return sorted
   }, [notices, state, scores])
@@ -460,13 +522,20 @@ export default function App() {
   )
   const sourceOptions = useMemo(
     () =>
-      sources.map((s) => ({
-        id: s.info.id,
-        label: s.info.label,
-        count: s.info.count,
+      (manifest?.sources ?? []).map((s) => ({
+        id: s.id,
+        label: s.label,
+        count: s.count,
       })),
-    [sources],
+    [manifest],
   )
+
+  const pendingSource = useMemo(() => {
+    if (!state.source || !manifest) return null
+    const info = manifest.sources.find((s) => s.id === state.source)
+    if (!info?.lazy) return null
+    return sources.some((s) => s.info.id === state.source) ? null : info
+  }, [state.source, manifest, sources])
 
   // ---------- render ----------
   if (loadError) {
@@ -510,19 +579,20 @@ export default function App() {
       />
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
-        {!notices || !stats ? (
+        {!stats || !manifest ? (
           <DashboardSkeleton />
         ) : (
           <div className="space-y-4">
-            <DashboardTop stats={stats} state={state} onPatch={patch} sources={sources} />
+            <DashboardTop stats={stats} state={state} onPatch={patch} sources={manifest.sources} />
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
               <div className="min-w-0 space-y-4">
                 <FilterBar
                   state={state}
                   onPatch={patch}
-                  total={notices.length}
-                  shown={filtered.length}
+                  total={notices?.length ?? 0}
+                  shown={notices ? filtered.length : 0}
+                  loading={!notices}
                   took={took}
                   claimantLabel={claimantLabel}
                   claimantOptions={claimantOptions}
@@ -540,14 +610,22 @@ export default function App() {
                     <span className="h-px flex-1 bg-edge" />
                   </div>
                 )}
-                <ResultList
-                  items={filtered}
-                  claimantLabel={claimantLabel}
-                  terms={terms}
-                  selectedIndex={selIndex}
-                  onOpen={openDetail}
-                  resetKey={resetKey}
-                />
+                {pendingSource ? (
+                  <div className="flex h-[calc(100vh-400px)] min-h-[400px] items-center justify-center rounded-lg border border-edge bg-panel text-[13px] text-ink2">
+                    Loading {pendingSource.label} index…
+                  </div>
+                ) : notices ? (
+                  <ResultList
+                    items={filtered}
+                    claimantLabel={claimantLabel}
+                    terms={terms}
+                    selectedIndex={selIndex}
+                    onOpen={openDetail}
+                    resetKey={resetKey}
+                  />
+                ) : (
+                  <ListSkeleton />
+                )}
               </div>
 
               <aside className="hidden xl:block">
@@ -562,7 +640,7 @@ export default function App() {
               </aside>
             </div>
 
-            <div className="xl:hidden">
+            <div className="xl:hidden [content-visibility:auto] [contain-intrinsic-size:auto_640px]">
               <DashboardWidgets
                 stats={stats}
                 state={state}
@@ -574,7 +652,7 @@ export default function App() {
         )}
       </main>
 
-      <Footer stats={stats} sources={sources} />
+      <Footer stats={stats} sources={manifest?.sources} />
 
       <DetailPanel
         notice={detailNotice ?? closing}
@@ -590,9 +668,27 @@ export default function App() {
   )
 }
 
-function DashboardSkeleton() {
+function ListSkeleton() {
   return (
-    <div className="space-y-4">
+    <div className="h-[calc(100vh-400px)] min-h-[400px] overflow-hidden">
+      <div className="space-y-2 p-1">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div
+            key={i}
+            className="h-24 animate-pulse rounded-lg border border-edge bg-panel"
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function DashboardSkeleton() {
+  // Fill the viewport so the footer starts below the fold. Otherwise the
+  // footer is visible during loading and gets pushed down by the real
+  // content, which Lighthouse counts as a large layout shift.
+  return (
+    <div className="min-h-[calc(100vh-4rem)] space-y-4">
       <div className="h-14 animate-pulse rounded-lg border border-edge bg-panel" />
       <div className="h-[190px] animate-pulse rounded-lg border border-edge bg-panel" />
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">

@@ -13,11 +13,11 @@ export interface SearchDoc {
   v: string // source id
 }
 
-export function docsFromNotices(
-  notices: Notice[],
+export function docFromNotice(
+  n: Notice,
   labelFor: (key: string) => string,
-): SearchDoc[] {
-  return notices.map((n) => ({
+): SearchDoc {
+  return {
     id: n.id,
     c: n.claimant ?? labelFor(n.claimantKey),
     k: n.claimantKey,
@@ -26,7 +26,7 @@ export function docsFromNotices(
     x: n.excerpt,
     d: n.domain,
     v: n.source,
-  }))
+  }
 }
 
 export { titleCaseSlug }

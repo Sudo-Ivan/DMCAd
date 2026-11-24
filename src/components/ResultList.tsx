@@ -43,7 +43,7 @@ export function ResultList({
     <div
       ref={parentRef}
       className="h-[calc(100vh-400px)] min-h-[400px] overflow-y-auto"
-      role="listbox"
+      role="group"
       aria-label="Search results"
     >
       <div

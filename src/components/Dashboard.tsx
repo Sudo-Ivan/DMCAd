@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Stats } from '../lib/data'
-import type { LoadedSource } from '../lib/data'
+import type { SourceInfo } from '../lib/data'
 import type { AppState } from '../lib/appState'
 import { TYPE_NAMES } from '../lib/parse'
 import { Timeline } from './Timeline'
@@ -9,7 +9,7 @@ interface TopProps {
   stats: Stats
   state: AppState
   onPatch: (p: Partial<AppState>) => void
-  sources?: LoadedSource[]
+  sources?: SourceInfo[]
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -45,21 +45,21 @@ export function DashboardTop({ stats, state, onPatch, sources }: TopProps) {
           </button>
           {sources.map((s) => (
             <button
-              key={s.info.id}
+              key={s.id}
               onClick={() =>
                 onPatch({
-                  source: state.source === s.info.id ? '' : s.info.id,
+                  source: state.source === s.id ? '' : s.id,
                 })
               }
               className={`rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors duration-150 ${
-                state.source === s.info.id
+                state.source === s.id
                   ? 'border-accent bg-accent-soft text-accent'
                   : 'border-edge bg-panel text-ink2 hover:text-ink'
               }`}
             >
-              {s.info.label}
+              {s.label}
               <span className="ml-1.5 tabular-nums text-ink3">
-                {s.info.count.toLocaleString()}
+                {s.count.toLocaleString()}
               </span>
             </button>
           ))}
