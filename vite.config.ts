@@ -8,4 +8,7 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 1600,
   },
+  test: {
+    exclude: ['**/node_modules/**', '**/.cache/**', '**/dist/**'],
+  },
 })

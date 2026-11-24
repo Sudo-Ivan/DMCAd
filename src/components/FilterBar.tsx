@@ -9,6 +9,8 @@ import {
 } from 'lucide-react'
 import type { AppState } from '../lib/appState'
 import type { FullTextState, SortMode } from '../lib/types'
+import type { SourceId } from '../lib/sources'
+import { SOURCE_LABELS } from '../lib/sources'
 import type { PickOption } from './PickList'
 import { PickList } from './PickList'
 import { TYPE_NAMES } from '../lib/parse'
@@ -22,6 +24,7 @@ interface Props {
   claimantLabel: (key: string) => string
   claimantOptions: PickOption[]
   ownerOptions: PickOption[]
+  sourceOptions: { id: SourceId; label: string; count: number }[]
   fullText: FullTextState
   fullProgress: [number, number]
   onToggleFullText: () => void
@@ -167,6 +170,7 @@ export function FilterBar({
   claimantLabel,
   claimantOptions,
   ownerOptions,
+  sourceOptions,
   fullText,
   fullProgress,
   onToggleFullText,
@@ -178,7 +182,8 @@ export function FilterBar({
     state.types.length > 0 ||
     state.claimants.length > 0 ||
     state.owners.length > 0 ||
-    state.counterOnly
+    state.counterOnly ||
+    state.source !== ''
 
   const chips = useMemo(() => {
     const out: { key: string; label: string; remove: () => void }[] = []
@@ -227,6 +232,13 @@ export function FilterBar({
         remove: () => onPatch({ counterOnly: false }),
       })
     }
+    if (state.source) {
+      out.push({
+        key: 'src',
+        label: SOURCE_LABELS[state.source],
+        remove: () => onPatch({ source: '' }),
+      })
+    }
     return out
   }, [state, onPatch, claimantLabel])
 
@@ -251,6 +263,7 @@ export function FilterBar({
                   claimants: [],
                   owners: [],
                   counterOnly: false,
+                  source: '',
                 })
               }
               className="text-[12px] font-medium text-accent transition hover:underline"
@@ -274,6 +287,19 @@ export function FilterBar({
         </div>
 
         <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <select
+            value={state.source}
+            onChange={(e) => onPatch({ source: e.target.value as SourceId | '' })}
+            className="h-8 rounded-md border border-edge bg-panel px-2 text-[12px] font-medium text-ink2 transition-colors duration-150 hover:text-ink"
+            aria-label="Source"
+          >
+            <option value="">All sources</option>
+            {sourceOptions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.label} ({s.count.toLocaleString()})
+              </option>
+            ))}
+          </select>
           <PickList
             label="Claimant"
             options={claimantOptions}

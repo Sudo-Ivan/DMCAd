@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Link2 } from 'lucide-react'
 import type { Notice } from '../lib/rows'
 import { TYPE_NAMES } from '../lib/parse'
+import { SOURCE_LABELS } from '../lib/sources'
 
 // Thin-bordered text tags. Copyright and anti-circumvention stay neutral;
 // the rarer types keep a colored label.
@@ -12,6 +13,8 @@ export const TYPE_BADGE: Record<number, string> = {
   3: 'border-amber-500/40 text-amber-700 dark:text-amber-400',
   4: 'border-violet-500/40 text-violet-700 dark:text-violet-400',
   5: 'border-edge text-ink2',
+  6: 'border-sky-500/40 text-sky-700 dark:text-sky-400',
+  7: 'border-indigo-500/40 text-indigo-700 dark:text-indigo-400',
 }
 
 export function escapeRe(s: string): string {
@@ -82,6 +85,9 @@ export function ResultCard({ notice: n, claimantLabel, terms, selected, onClick 
         </span>
         <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold tracking-tight text-ink">
           <Highlight text={claimantLabel} terms={terms} />
+        </span>
+        <span className="shrink-0 rounded border border-edge bg-panel2 px-1.5 py-px text-[10px] font-medium text-ink3">
+          {SOURCE_LABELS[n.source]}
         </span>
         <TypeBadge type={n.type} />
       </div>

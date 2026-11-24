@@ -1,5 +1,5 @@
 {
-  "name": "dmca-notices",
+  "name": "dmcad",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "data": "tsx scripts/build-data.ts",
+    "data": "NODE_OPTIONS=--max-old-space-size=8192 tsx scripts/build-data.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint ."

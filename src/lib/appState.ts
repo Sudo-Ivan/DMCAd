@@ -1,4 +1,5 @@
 import type { SortMode } from './types'
+import type { SourceId } from './sources'
 
 export interface AppState {
   q: string
@@ -8,8 +9,9 @@ export interface AppState {
   claimants: string[]
   owners: string[]
   counterOnly: boolean
+  source: SourceId | '' // '' = all sources
   sort: SortMode
-  detail: string | null // notice path
+  detail: string | null // notice id (`source:path`)
 }
 
 export const DEFAULT_STATE: AppState = {
@@ -20,6 +22,7 @@ export const DEFAULT_STATE: AppState = {
   claimants: [],
   owners: [],
   counterOnly: false,
+  source: '',
   sort: 'auto',
   detail: null,
 }
@@ -41,6 +44,7 @@ export function readState(): AppState {
     claimants: csv('c'),
     owners: csv('o'),
     counterOnly: p.get('cn') === '1',
+    source: (p.get('src') as SourceId) || '',
     sort: (['auto', 'new', 'old', 'rel', 'url'].includes(p.get('s') ?? '')
       ? (p.get('s') as SortMode)
       : 'auto'),
@@ -57,6 +61,7 @@ export function stateToParams(s: AppState): URLSearchParams {
   if (s.claimants.length) p.set('c', s.claimants.join(','))
   if (s.owners.length) p.set('o', s.owners.join(','))
   if (s.counterOnly) p.set('cn', '1')
+  if (s.source) p.set('src', s.source)
   if (s.sort !== 'auto') p.set('s', s.sort)
   if (s.detail) p.set('n', s.detail)
   return p

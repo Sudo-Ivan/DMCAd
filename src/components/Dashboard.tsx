@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Stats } from '../lib/data'
+import type { LoadedSource } from '../lib/data'
 import type { AppState } from '../lib/appState'
 import { TYPE_NAMES } from '../lib/parse'
 import { Timeline } from './Timeline'
@@ -8,6 +9,7 @@ interface TopProps {
   stats: Stats
   state: AppState
   onPatch: (p: Partial<AppState>) => void
+  sources?: LoadedSource[]
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
@@ -24,11 +26,45 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
   )
 }
 
-export function DashboardTop({ stats, state, onPatch }: TopProps) {
+export function DashboardTop({ stats, state, onPatch, sources }: TopProps) {
   const years = Object.keys(stats.years).length
 
   return (
     <section className="space-y-4">
+      {sources && sources.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => onPatch({ source: '' })}
+            className={`rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors duration-150 ${
+              state.source === ''
+                ? 'border-accent bg-accent-soft text-accent'
+                : 'border-edge bg-panel text-ink2 hover:text-ink'
+            }`}
+          >
+            All sources
+          </button>
+          {sources.map((s) => (
+            <button
+              key={s.info.id}
+              onClick={() =>
+                onPatch({
+                  source: state.source === s.info.id ? '' : s.info.id,
+                })
+              }
+              className={`rounded-md border px-2.5 py-1 text-[12px] font-medium transition-colors duration-150 ${
+                state.source === s.info.id
+                  ? 'border-accent bg-accent-soft text-accent'
+                  : 'border-edge bg-panel text-ink2 hover:text-ink'
+              }`}
+            >
+              {s.info.label}
+              <span className="ml-1.5 tabular-nums text-ink3">
+                {s.info.count.toLocaleString()}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex flex-wrap items-start gap-x-10 gap-y-3 border-b border-edge pb-4">
         <Stat
           label="Notices"
@@ -86,6 +122,8 @@ const TYPE_HEX: Record<number, string> = {
   3: '#f59e0b',
   4: '#8b5cf6',
   5: '#f43f5e',
+  6: '#0ea5e9',
+  7: '#6366f1',
 }
 
 interface WidgetsProps {

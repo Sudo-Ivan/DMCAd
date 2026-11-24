@@ -13,6 +13,7 @@ interface Doc {
   t: string // targets csv
   x: string // excerpt
   d: string // domain
+  v: string // source id
 }
 
 interface BodyDoc {
@@ -27,12 +28,12 @@ let fullReady = false
 
 function buildMeta(docs: Doc[]) {
   metaIndex = new MiniSearch<Doc>({
-    fields: ['c', 'k', 's', 't', 'x', 'd'],
+    fields: ['c', 'k', 's', 't', 'x', 'd', 'v'],
     storeFields: [],
     searchOptions: {
       prefix: true,
       fuzzy: 0.15,
-      boost: { c: 3, k: 3, s: 2, t: 2, x: 1, d: 0.5 },
+      boost: { c: 3, k: 3, s: 2, t: 2, x: 1, d: 0.5, v: 0.5 },
     },
   })
   metaIndex.addAll(docs)

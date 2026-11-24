@@ -7,6 +7,10 @@ export const TYPE_COUNTER = 2
 export const TYPE_RETRACTION = 3
 export const TYPE_REVERSAL = 4
 export const TYPE_CIRCUMVENTION = 5
+// Cross-source types. Google rows are search delisting requests, not
+// notices on a repo; wikimedia rows are foundation DMCA notices.
+export const TYPE_REQUEST = 6
+export const TYPE_NOTICE = 7
 
 export const TYPE_NAMES: Record<number, string> = {
   [TYPE_OTHER]: 'Other',
@@ -15,6 +19,8 @@ export const TYPE_NAMES: Record<number, string> = {
   [TYPE_RETRACTION]: 'Retraction',
   [TYPE_REVERSAL]: 'Reversal',
   [TYPE_CIRCUMVENTION]: 'Anti-circumvention',
+  [TYPE_REQUEST]: 'Search delisting request',
+  [TYPE_NOTICE]: 'DMCA notice',
 }
 
 export const TYPE_COLORS: Record<number, string> = {
@@ -24,6 +30,8 @@ export const TYPE_COLORS: Record<number, string> = {
   [TYPE_RETRACTION]: 'violet',
   [TYPE_REVERSAL]: 'teal',
   [TYPE_CIRCUMVENTION]: 'rose',
+  [TYPE_REQUEST]: 'sky',
+  [TYPE_NOTICE]: 'indigo',
 }
 
 const MD_EXT = /\.(md|markdown)$/i

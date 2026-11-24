@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { loadBodies, loadIndex, loadStats, type Stats } from './lib/data'
-import { decodeRow, monthOf, type Notice } from './lib/rows'
+import {
+  loadBodies,
+  loadManifest,
+  loadSource,
+  mergeStats,
+  type LoadedSource,
+  type Stats,
+} from './lib/data'
+import { bodyChunk, type Notice } from './lib/rows'
+import { SOURCE_ORDER } from './lib/sources'
 import {
   readState,
   urlFor,
@@ -34,6 +42,7 @@ function isTypingTarget(e: KeyboardEvent): boolean {
 export default function App() {
   const [notices, setNotices] = useState<Notice[] | null>(null)
   const [stats, setStats] = useState<Stats | null>(null)
+  const [sources, setSources] = useState<LoadedSource[]>([])
   const [loadError, setLoadError] = useState<string | null>(null)
   const [state, setState] = useState<AppState>(readState)
   const [dark, setDark] = useState(() =>
@@ -59,11 +68,40 @@ export default function App() {
   // ---------- data loading ----------
   useEffect(() => {
     let cancelled = false
-    Promise.all([loadIndex(), loadStats()])
-      .then(([idx, st]) => {
-        if (cancelled) return
-        setNotices(idx.rows.map(decodeRow))
-        setStats(st)
+    loadManifest()
+      .then(async (manifest) => {
+        // Non-lazy sources load up front; lazy ones are fetched on demand.
+        const eager = manifest.sources.filter((s) => !s.lazy)
+        const lazy = manifest.sources.filter((s) => s.lazy)
+        const loaded: LoadedSource[] = []
+        const apply = () => {
+          if (cancelled || loaded.length === 0) return
+          const ordered = [...loaded].sort(
+            (a, b) => SOURCE_ORDER.indexOf(a.info.id) - SOURCE_ORDER.indexOf(b.info.id),
+          )
+          setSources(ordered)
+          setNotices(ordered.flatMap((s) => s.notices))
+          setStats(mergeStats(ordered.map((s) => s.stats)))
+        }
+        await Promise.all(
+          eager.map((info) =>
+            loadSource(info).then((s) => {
+              loaded.push(s)
+              apply()
+            }),
+          ),
+        )
+        apply()
+        // lazy sources stream in behind the eager set
+        for (const info of lazy) {
+          loadSource(info)
+            .then((s) => {
+              if (cancelled) return
+              loaded.push(s)
+              apply()
+            })
+            .catch(() => {})
+        }
       })
       .catch((e) => {
         if (!cancelled) setLoadError(String(e))
@@ -105,7 +143,13 @@ export default function App() {
   }, [stats])
 
   const claimantLabel = useCallback(
-    (key: string) => labelMap.get(key) ?? titleCaseSlug(key),
+    (key: string) => {
+      const hit = labelMap.get(key)
+      if (hit) return hit
+      // namespaced keys fall back to the bare claimant name
+      const bare = key.includes(':') ? key.slice(key.indexOf(':') + 1) : key
+      return titleCaseSlug(bare)
+    },
     [labelMap],
   )
 
@@ -174,7 +218,8 @@ export default function App() {
   const filtered = useMemo(() => {
     if (!notices) return []
     let list = notices
-    const { from, to, types, claimants, owners, counterOnly } = state
+    const { from, to, types, claimants, owners, counterOnly, source } = state
+    if (source) list = list.filter((n) => n.source === source)
     if (
       from ||
       to ||
@@ -206,7 +251,7 @@ export default function App() {
       })
     }
     if (state.q && scores) {
-      list = list.filter((n) => scores.has(n.path))
+      list = list.filter((n) => scores.has(n.id))
     }
     const sorted = [...list]
     const effective =
@@ -225,7 +270,7 @@ export default function App() {
       case 'rel':
         if (scores) {
           sorted.sort(
-            (a, b) => (scores.get(b.path) ?? 0) - (scores.get(a.path) ?? 0),
+            (a, b) => (scores.get(b.id) ?? 0) - (scores.get(a.id) ?? 0),
           )
         } else {
           sorted.sort((a, b) => b.date.localeCompare(a.date))
@@ -257,7 +302,7 @@ export default function App() {
   // ---------- detail navigation ----------
   const detailIndex = useMemo(() => {
     if (!state.detail) return -1
-    return filtered.findIndex((n) => n.path === state.detail)
+    return filtered.findIndex((n) => n.id === state.detail)
   }, [filtered, state.detail])
 
   const detailNotice = detailIndex >= 0 ? filtered[detailIndex] : null
@@ -274,7 +319,7 @@ export default function App() {
     (index: number) => {
       const n = filtered[index]
       if (!n) return
-      applyState({ ...stateRef.current, detail: n.path }, { push: true })
+      applyState({ ...stateRef.current, detail: n.id }, { push: true })
     },
     [filtered, applyState],
   )
@@ -345,7 +390,11 @@ export default function App() {
     }
     if (fullText === 'loading') return
     setFullText('loading')
-    const chunks = [...new Set(notices.map(monthOf))].sort()
+    const chunks = [
+      ...new Set(
+        notices.map(bodyChunk).filter((c): c is string => c !== null),
+      ),
+    ].sort()
     setFullProgress([0, chunks.length])
     let done = 0
     let failed = 0
@@ -409,6 +458,15 @@ export default function App() {
       })),
     [stats],
   )
+  const sourceOptions = useMemo(
+    () =>
+      sources.map((s) => ({
+        id: s.info.id,
+        label: s.info.label,
+        count: s.info.count,
+      })),
+    [sources],
+  )
 
   // ---------- render ----------
   if (loadError) {
@@ -456,7 +514,7 @@ export default function App() {
           <DashboardSkeleton />
         ) : (
           <div className="space-y-4">
-            <DashboardTop stats={stats} state={state} onPatch={patch} />
+            <DashboardTop stats={stats} state={state} onPatch={patch} sources={sources} />
 
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
               <div className="min-w-0 space-y-4">
@@ -469,6 +527,7 @@ export default function App() {
                   claimantLabel={claimantLabel}
                   claimantOptions={claimantOptions}
                   ownerOptions={ownerOptions}
+                  sourceOptions={sourceOptions}
                   fullText={fullText}
                   fullProgress={fullProgress}
                   onToggleFullText={toggleFullText}
@@ -515,7 +574,7 @@ export default function App() {
         )}
       </main>
 
-      <Footer stats={stats} />
+      <Footer stats={stats} sources={sources} />
 
       <DetailPanel
         notice={detailNotice ?? closing}
