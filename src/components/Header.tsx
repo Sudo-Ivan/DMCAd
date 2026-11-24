@@ -33,11 +33,11 @@ export function Header({ q, onQuery, onOpenFirst, inputRef, dark, onToggleTheme 
         <a href="./" className="flex shrink-0 items-center gap-2">
           <Logo size={26} />
           <span className="hidden text-[14px] font-semibold tracking-tight sm:block">
-            DMCA
+            DMCAd
             <span className="ml-1.5 font-normal text-ink2">Notices</span>
           </span>
           <span className="text-[14px] font-semibold tracking-tight sm:hidden">
-            DMCA
+            DMCAd
           </span>
         </a>
 
