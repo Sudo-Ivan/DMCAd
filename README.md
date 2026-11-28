@@ -63,6 +63,7 @@ sources.
 
 Search runs in a worker. Full-text search is opt-in and downloads all
 body chunks once. All UI state lives in the query string, so views are
-shareable. `.github/workflows/deploy.yml` rebuilds the data daily and
-deploys to GitHub Pages; set `BASE_PATH` in repo variables if Pages is
-not at the root.
+shareable. `.github/workflows/deploy.yml` rebuilds the data each
+Monday at 04:23 UTC and deploys to GitHub Pages. The generated JSON
+stays out of git. Each deploy rebuilds it. Set `BASE_PATH` in repo
+variables if Pages is not at the root.
